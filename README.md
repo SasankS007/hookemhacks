@@ -1,36 +1,97 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PicklePro — Pickleball Skill Development Platform
+
+AI-powered pickleball training with stroke analysis, interactive AI rally, and match footage review.
+
+## Tech Stack
+
+- **Frontend:** Next.js 14 (App Router), TypeScript, Tailwind CSS, shadcn/ui, Framer Motion
+- **Backend:** FastAPI (Python)
+- **Database/Storage:** Supabase (PostgreSQL + file storage)
+- **State Management:** Zustand
 
 ## Getting Started
 
-First, run the development server:
+### Prerequisites
+
+- Node.js 18+
+- Python 3.10+
+- npm
+
+### 1. Clone & Install Frontend
+
+```bash
+npm install
+```
+
+### 2. Environment Variables
+
+Copy the example env file and fill in your Supabase credentials:
+
+```bash
+cp .env.example .env.local
+```
+
+Edit `.env.local` with your values:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+BACKEND_URL=http://localhost:8000
+```
+
+### 3. Run the Frontend
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+The app runs at [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### 4. Set Up & Run the Backend
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+cd backend
+pip install -r requirements.txt
+uvicorn main:app --reload
+```
 
-## Learn More
+The API runs at [http://localhost:8000](http://localhost:8000). API docs available at [http://localhost:8000/docs](http://localhost:8000/docs).
 
-To learn more about Next.js, take a look at the following resources:
+The Next.js app proxies `/api/*` requests to the FastAPI backend automatically.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Project Structure
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```
+/
+├── app/                          # Next.js App Router pages
+│   ├── layout.tsx                # Root layout with navbar
+│   ├── page.tsx                  # Landing page
+│   ├── dashboard/page.tsx        # Main dashboard hub
+│   ├── stroke-analysis/page.tsx  # Stroke analysis mode
+│   ├── ai-rally/page.tsx         # AI rally game
+│   └── footage/page.tsx          # Footage upload & analysis
+├── components/
+│   ├── ui/                       # shadcn/ui components
+│   ├── nav/                      # Navbar
+│   └── PageTransition.tsx        # Framer Motion wrapper
+├── store/
+│   └── useAppStore.ts            # Zustand global state
+├── lib/
+│   ├── utils.ts                  # Utility functions (cn)
+│   └── supabase.ts               # Supabase client
+└── backend/                      # FastAPI service
+    ├── main.py                   # App entry point
+    ├── routers/
+    │   ├── stroke.py             # Stroke analysis endpoints
+    │   ├── rally.py              # Rally game endpoints
+    │   └── footage.py            # Footage analysis endpoints
+    └── requirements.txt
+```
 
-## Deploy on Vercel
+## Features
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Mode | Description |
+|------|-------------|
+| **Stroke Analysis** | Select stroke type, view camera placeholder, get AI coaching tips |
+| **AI Rally** | 2D pickleball court game with keyboard/mouse controls and difficulty levels |
+| **Footage Review** | Drag-and-drop video upload, court heatmap, shot statistics, shot timeline |
