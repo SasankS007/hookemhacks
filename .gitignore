@@ -34,3 +34,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# AI Rally CV artifacts
+backend/ai_rally/paddle_model.pt
+backend/ai_rally/dataset/
+backend/ai_rally/runs/
+backend/ai_rally/models/
+*.pt
+__pycache__/

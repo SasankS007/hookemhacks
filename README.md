@@ -59,6 +59,35 @@ The API runs at [http://localhost:8000](http://localhost:8000). API docs availab
 
 The Next.js app proxies `/api/*` requests to the FastAPI backend automatically.
 
+### 5. Set Up the AI Rally CV Game
+
+The AI Rally mode uses a standalone Python process (YOLOv8 + MediaPipe + Pygame) that streams to the browser over WebSocket.
+
+```bash
+cd backend/ai_rally
+pip install -r requirements.txt
+```
+
+**Optional — Fine-tune YOLOv8n on a paddle dataset:**
+
+```bash
+export ROBOFLOW_API_KEY=your_key_here
+python setup_model.py
+```
+
+Without fine-tuning, the base YOLOv8n model runs with a MediaPipe wrist fallback for paddle tracking.
+
+**Launch the CV server manually:**
+
+```bash
+cd backend/ai_rally
+python server.py
+```
+
+Or click **Launch & Connect** on the AI Rally page — the FastAPI backend will spawn it automatically.
+
+The WebSocket server runs at `ws://localhost:8765`.
+
 ## Project Structure
 
 ```
@@ -68,7 +97,7 @@ The Next.js app proxies `/api/*` requests to the FastAPI backend automatically.
 │   ├── page.tsx                  # Landing page
 │   ├── dashboard/page.tsx        # Main dashboard hub
 │   ├── stroke-analysis/page.tsx  # Stroke analysis mode
-│   ├── ai-rally/page.tsx         # AI rally game
+│   ├── ai-rally/page.tsx         # AI rally (CV mode)
 │   └── footage/page.tsx          # Footage upload & analysis
 ├── components/
 │   ├── ui/                       # shadcn/ui components
@@ -79,13 +108,20 @@ The Next.js app proxies `/api/*` requests to the FastAPI backend automatically.
 ├── lib/
 │   ├── utils.ts                  # Utility functions (cn)
 │   └── supabase.ts               # Supabase client
-└── backend/                      # FastAPI service
-    ├── main.py                   # App entry point
+└── backend/
+    ├── main.py                   # FastAPI entry point
     ├── routers/
     │   ├── stroke.py             # Stroke analysis endpoints
-    │   ├── rally.py              # Rally game endpoints
+    │   ├── rally.py              # Rally endpoints + CV launch/stop
     │   └── footage.py            # Footage analysis endpoints
-    └── requirements.txt
+    ├── requirements.txt
+    └── ai_rally/                 # CV game (standalone process)
+        ├── server.py             # WebSocket server (ws://localhost:8765)
+        ├── cv_engine.py          # YOLOv8n + MediaPipe pipeline
+        ├── stroke_classifier.py  # Rule-based forehand/backhand detector
+        ├── game_engine.py        # Pygame off-screen 2D court
+        ├── setup_model.py        # Roboflow dataset + YOLO fine-tune
+        └── requirements.txt
 ```
 
 ## Features
@@ -93,5 +129,28 @@ The Next.js app proxies `/api/*` requests to the FastAPI backend automatically.
 | Mode | Description |
 |------|-------------|
 | **Stroke Analysis** | Select stroke type, view camera placeholder, get AI coaching tips |
-| **AI Rally** | 2D pickleball court game with keyboard/mouse controls and difficulty levels |
+| **AI Rally** | Real-time CV game — webcam + YOLO paddle detection + MediaPipe pose → swing your paddle to return the ball on a 2D court |
 | **Footage Review** | Drag-and-drop video upload, court heatmap, shot statistics, shot timeline |
+
+## AI Rally — Architecture
+
+```
+┌─────────────┐     WebSocket (ws://localhost:8765)     ┌──────────────┐
+│  Browser     │ ◄──── JPEG frames + JSON state ──────► │  server.py   │
+│  (Next.js)   │                                        │              │
+└─────────────┘                                        │  ┌──────────┐│
+                                                        │  │cv_engine ││ ← YOLO thread + MediaPipe
+                                                        │  │          ││
+                                                        │  └──────────┘│
+                                                        │  ┌──────────┐│
+                                                        │  │game_eng. ││ ← Pygame off-screen court
+                                                        │  └──────────┘│
+                                                        │  ┌──────────┐│
+                                                        │  │stroke_cl.││ ← 30-frame rolling buffer
+                                                        │  └──────────┘│
+                                                        └──────────────┘
+```
+
+- **Left panel (60%):** Live webcam with YOLO bounding box (green), sweet spot circle (yellow), MediaPipe skeleton, hitting arm highlighted (orange), stroke state label, velocity meter
+- **Right panel (40%):** Top-down 2D court, player paddle (blue), AI paddle (red), ball (yellow), hit window indicator, score display
+- **Stroke detection:** Forehand (wrist L→R, elbow 100–160°) / Backhand (wrist R→L, crosses torso) / confirmed after 8 consecutive frames

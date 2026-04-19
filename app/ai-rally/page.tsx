@@ -3,373 +3,284 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { PageTransition } from "@/components/PageTransition";
-import { RotateCcw, Trophy } from "lucide-react";
+import {
+  Wifi,
+  WifiOff,
+  RotateCcw,
+  Trophy,
+  Loader2,
+  Camera,
+  Zap,
+} from "lucide-react";
 
-type Difficulty = "easy" | "medium" | "hard";
+const WS_URL = "ws://localhost:8765";
 
-const COURT_WIDTH = 400;
-const COURT_HEIGHT = 600;
-const PADDLE_WIDTH = 80;
-const PADDLE_HEIGHT = 12;
-const BALL_SIZE = 10;
-const WIN_SCORE = 11;
-
-const AI_SPEEDS: Record<Difficulty, number> = {
-  easy: 2.5,
-  medium: 4.5,
-  hard: 7,
-};
+type ConnState = "disconnected" | "connecting" | "connected" | "error";
 
 interface GameState {
-  playerX: number;
-  aiX: number;
-  ballX: number;
-  ballY: number;
-  ballDX: number;
-  ballDY: number;
+  stroke: string | null;
+  velocity: number;
   playerScore: number;
   aiScore: number;
-  running: boolean;
   gameOver: boolean;
+  winner: string | null;
+  hitWindow: boolean;
+  rally: number;
+  error?: string;
 }
 
-function initialState(): GameState {
-  return {
-    playerX: COURT_WIDTH / 2 - PADDLE_WIDTH / 2,
-    aiX: COURT_WIDTH / 2 - PADDLE_WIDTH / 2,
-    ballX: COURT_WIDTH / 2 - BALL_SIZE / 2,
-    ballY: COURT_HEIGHT / 2 - BALL_SIZE / 2,
-    ballDX: 3 * (Math.random() > 0.5 ? 1 : -1),
-    ballDY: 4,
-    playerScore: 0,
-    aiScore: 0,
-    running: false,
-    gameOver: false,
-  };
-}
+const STROKE_COLORS: Record<string, string> = {
+  FOREHAND: "text-green-400 bg-green-400/10 border-green-400/30",
+  BACKHAND: "text-blue-400 bg-blue-400/10 border-blue-400/30",
+  READY: "text-white bg-white/5 border-white/20",
+  UNIDENTIFIABLE: "text-red-400 bg-red-400/10 border-red-400/30",
+};
 
 export default function AIRallyPage() {
-  const [difficulty, setDifficulty] = useState<Difficulty>("medium");
-  const [game, setGame] = useState<GameState>(initialState);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const gameRef = useRef(game);
-  const animFrameRef = useRef<number>(0);
-  const keysRef = useRef<Set<string>>(new Set());
+  const wsRef = useRef<WebSocket | null>(null);
+  const [conn, setConn] = useState<ConnState>("disconnected");
+  const [gameState, setGameState] = useState<GameState>({
+    stroke: null,
+    velocity: 0,
+    playerScore: 0,
+    aiScore: 0,
+    gameOver: false,
+    winner: null,
+    hitWindow: false,
+    rally: 0,
+  });
+  const [launching, setLaunching] = useState(false);
 
-  gameRef.current = game;
-
-  const resetGame = useCallback(() => {
-    cancelAnimationFrame(animFrameRef.current);
-    setGame(initialState());
-  }, []);
-
-  const startGame = useCallback(() => {
-    setGame((g) => ({ ...g, running: true }));
-  }, []);
-
-  // Key listeners
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      keysRef.current.add(e.key);
-      if (["ArrowLeft", "ArrowRight"].includes(e.key)) e.preventDefault();
-    };
-    const handleKeyUp = (e: KeyboardEvent) => {
-      keysRef.current.delete(e.key);
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    window.addEventListener("keyup", handleKeyUp);
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-      window.removeEventListener("keyup", handleKeyUp);
-    };
-  }, []);
-
-  // Mouse/touch control
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    const handlePointer = (e: MouseEvent | TouchEvent) => {
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = COURT_WIDTH / rect.width;
-      const clientX =
-        "touches" in e ? e.touches[0].clientX : (e as MouseEvent).clientX;
-      const x = (clientX - rect.left) * scaleX;
-      setGame((g) => ({
-        ...g,
-        playerX: Math.max(
-          0,
-          Math.min(COURT_WIDTH - PADDLE_WIDTH, x - PADDLE_WIDTH / 2)
-        ),
-      }));
-    };
-
-    canvas.addEventListener("mousemove", handlePointer);
-    canvas.addEventListener("touchmove", handlePointer as EventListener);
-    return () => {
-      canvas.removeEventListener("mousemove", handlePointer);
-      canvas.removeEventListener("touchmove", handlePointer as EventListener);
-    };
-  }, []);
-
-  // Game loop
-  useEffect(() => {
-    if (!game.running || game.gameOver) return;
-
-    const aiSpeed = AI_SPEEDS[difficulty];
-    const PLAYER_SPEED = 6;
-
-    const loop = () => {
-      setGame((g) => {
-        let { playerX, aiX, ballX, ballY, ballDX, ballDY, playerScore, aiScore } = g;
-
-        // Player keyboard input
-        if (keysRef.current.has("ArrowLeft")) {
-          playerX = Math.max(0, playerX - PLAYER_SPEED);
-        }
-        if (keysRef.current.has("ArrowRight")) {
-          playerX = Math.min(COURT_WIDTH - PADDLE_WIDTH, playerX + PLAYER_SPEED);
-        }
-
-        // AI movement
-        const aiCenter = aiX + PADDLE_WIDTH / 2;
-        const ballCenter = ballX + BALL_SIZE / 2;
-        if (aiCenter < ballCenter - 5) {
-          aiX = Math.min(COURT_WIDTH - PADDLE_WIDTH, aiX + aiSpeed);
-        } else if (aiCenter > ballCenter + 5) {
-          aiX = Math.max(0, aiX - aiSpeed);
-        }
-
-        // Ball movement
-        ballX += ballDX;
-        ballY += ballDY;
-
-        // Wall collisions
-        if (ballX <= 0 || ballX >= COURT_WIDTH - BALL_SIZE) {
-          ballDX = -ballDX;
-          ballX = Math.max(0, Math.min(COURT_WIDTH - BALL_SIZE, ballX));
-        }
-
-        // Paddle collisions - player (bottom)
-        if (
-          ballDY > 0 &&
-          ballY + BALL_SIZE >= COURT_HEIGHT - PADDLE_HEIGHT - 20 &&
-          ballY + BALL_SIZE <= COURT_HEIGHT - 20 + PADDLE_HEIGHT &&
-          ballX + BALL_SIZE > playerX &&
-          ballX < playerX + PADDLE_WIDTH
-        ) {
-          ballDY = -Math.abs(ballDY);
-          const hitPos = (ballX + BALL_SIZE / 2 - playerX) / PADDLE_WIDTH;
-          ballDX = (hitPos - 0.5) * 8;
-          ballY = COURT_HEIGHT - PADDLE_HEIGHT - 20 - BALL_SIZE;
-        }
-
-        // Paddle collisions - AI (top)
-        if (
-          ballDY < 0 &&
-          ballY <= PADDLE_HEIGHT + 20 &&
-          ballY >= 20 - PADDLE_HEIGHT &&
-          ballX + BALL_SIZE > aiX &&
-          ballX < aiX + PADDLE_WIDTH
-        ) {
-          ballDY = Math.abs(ballDY);
-          const hitPos = (ballX + BALL_SIZE / 2 - aiX) / PADDLE_WIDTH;
-          ballDX = (hitPos - 0.5) * 8;
-          ballY = PADDLE_HEIGHT + 20;
-        }
-
-        // Scoring
-        let gameOver = false;
-        if (ballY < -BALL_SIZE) {
-          playerScore += 1;
-          if (playerScore >= WIN_SCORE) gameOver = true;
-          ballX = COURT_WIDTH / 2 - BALL_SIZE / 2;
-          ballY = COURT_HEIGHT / 2 - BALL_SIZE / 2;
-          ballDX = 3 * (Math.random() > 0.5 ? 1 : -1);
-          ballDY = -4;
-        } else if (ballY > COURT_HEIGHT + BALL_SIZE) {
-          aiScore += 1;
-          if (aiScore >= WIN_SCORE) gameOver = true;
-          ballX = COURT_WIDTH / 2 - BALL_SIZE / 2;
-          ballY = COURT_HEIGHT / 2 - BALL_SIZE / 2;
-          ballDX = 3 * (Math.random() > 0.5 ? 1 : -1);
-          ballDY = 4;
-        }
-
-        return {
-          ...g,
-          playerX,
-          aiX,
-          ballX,
-          ballY,
-          ballDX,
-          ballDY,
-          playerScore,
-          aiScore,
-          gameOver,
-          running: !gameOver,
-        };
-      });
-
-      animFrameRef.current = requestAnimationFrame(loop);
-    };
-
-    animFrameRef.current = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(animFrameRef.current);
-  }, [game.running, game.gameOver, difficulty]);
-
-  // Rendering
-  useEffect(() => {
+  const drawFrame = useCallback(async (blob: Blob) => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
-    ctx.clearRect(0, 0, COURT_WIDTH, COURT_HEIGHT);
+    const bitmap = await createImageBitmap(blob);
+    canvas.width = bitmap.width;
+    canvas.height = bitmap.height;
+    ctx.drawImage(bitmap, 0, 0);
+    bitmap.close();
+  }, []);
 
-    // Court background
-    ctx.fillStyle = "#0f1729";
-    ctx.fillRect(0, 0, COURT_WIDTH, COURT_HEIGHT);
+  const connect = useCallback(() => {
+    if (wsRef.current) {
+      wsRef.current.close();
+      wsRef.current = null;
+    }
 
-    // Court lines
-    ctx.strokeStyle = "rgba(74, 222, 128, 0.15)";
-    ctx.lineWidth = 2;
-    ctx.strokeRect(10, 10, COURT_WIDTH - 20, COURT_HEIGHT - 20);
+    setConn("connecting");
+    const ws = new WebSocket(WS_URL);
+    ws.binaryType = "blob";
 
-    // Center line
-    ctx.setLineDash([6, 6]);
-    ctx.beginPath();
-    ctx.moveTo(10, COURT_HEIGHT / 2);
-    ctx.lineTo(COURT_WIDTH - 10, COURT_HEIGHT / 2);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    ws.onopen = () => setConn("connected");
 
-    // Kitchen/NVZ lines
-    ctx.strokeStyle = "rgba(74, 222, 128, 0.1)";
-    ctx.beginPath();
-    ctx.moveTo(10, COURT_HEIGHT * 0.25);
-    ctx.lineTo(COURT_WIDTH - 10, COURT_HEIGHT * 0.25);
-    ctx.moveTo(10, COURT_HEIGHT * 0.75);
-    ctx.lineTo(COURT_WIDTH - 10, COURT_HEIGHT * 0.75);
-    ctx.stroke();
+    ws.onmessage = (ev) => {
+      if (ev.data instanceof Blob) {
+        drawFrame(ev.data);
+      } else {
+        try {
+          const data = JSON.parse(ev.data);
+          if (data.error) {
+            setGameState((prev) => ({ ...prev, error: data.error }));
+            setConn("error");
+            ws.close();
+            return;
+          }
+          setGameState(data);
+        } catch {
+          /* ignore malformed json */
+        }
+      }
+    };
 
-    // NVZ labels
-    ctx.fillStyle = "rgba(74, 222, 128, 0.08)";
-    ctx.font = "10px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText("NVZ", COURT_WIDTH / 2, COURT_HEIGHT * 0.22);
-    ctx.fillText("NVZ", COURT_WIDTH / 2, COURT_HEIGHT * 0.78);
+    ws.onerror = () => setConn("error");
+    ws.onclose = () => setConn("disconnected");
 
-    // AI paddle
-    ctx.fillStyle = "#ef4444";
-    ctx.shadowColor = "#ef4444";
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.roundRect(game.aiX, 20, PADDLE_WIDTH, PADDLE_HEIGHT, 6);
-    ctx.fill();
-    ctx.shadowBlur = 0;
+    wsRef.current = ws;
+  }, [drawFrame]);
 
-    // Player paddle
-    ctx.fillStyle = "#4ade80";
-    ctx.shadowColor = "#4ade80";
-    ctx.shadowBlur = 12;
-    ctx.beginPath();
-    ctx.roundRect(
-      game.playerX,
-      COURT_HEIGHT - PADDLE_HEIGHT - 20,
-      PADDLE_WIDTH,
-      PADDLE_HEIGHT,
-      6
-    );
-    ctx.fill();
-    ctx.shadowBlur = 0;
+  const disconnect = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    setConn("disconnected");
+  }, []);
 
-    // Ball
-    ctx.fillStyle = "#fbbf24";
-    ctx.shadowColor = "#fbbf24";
-    ctx.shadowBlur = 16;
-    ctx.beginPath();
-    ctx.arc(
-      game.ballX + BALL_SIZE / 2,
-      game.ballY + BALL_SIZE / 2,
-      BALL_SIZE / 2,
-      0,
-      Math.PI * 2
-    );
-    ctx.fill();
-    ctx.shadowBlur = 0;
-  }, [game]);
+  const resetGame = useCallback(() => {
+    wsRef.current?.send(JSON.stringify({ action: "reset" }));
+  }, []);
+
+  const launchAndConnect = useCallback(async () => {
+    setLaunching(true);
+    try {
+      await fetch("/api/rally/launch-cv", { method: "POST" });
+      // YOLO + MediaPipe + Pygame take ~10s to initialise on first run
+      const maxAttempts = 8;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        try {
+          const probe = new WebSocket(WS_URL);
+          await new Promise<void>((resolve, reject) => {
+            probe.onopen = () => { probe.close(); resolve(); };
+            probe.onerror = () => reject();
+            setTimeout(() => reject(), 1500);
+          });
+          connect();
+          return;
+        } catch {
+          /* server not ready yet, retry */
+        }
+      }
+      setConn("error");
+    } catch {
+      setConn("error");
+    } finally {
+      setLaunching(false);
+    }
+  }, [connect]);
+
+  const stopServer = useCallback(async () => {
+    disconnect();
+    try {
+      await fetch("/api/rally/stop-cv", { method: "POST" });
+    } catch {
+      /* best-effort */
+    }
+  }, [disconnect]);
+
+  // Clean up on unmount
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close();
+    };
+  }, []);
+
+  const strokeClass =
+    STROKE_COLORS[gameState.stroke || "READY"] || STROKE_COLORS.READY;
 
   return (
     <PageTransition>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold">AI Rally</h1>
+          <h1 className="text-3xl font-bold">AI Rally — CV Mode</h1>
           <p className="text-muted-foreground mt-1">
-            Use arrow keys or mouse to move your paddle. First to {WIN_SCORE} wins!
+            Swing your paddle in front of the webcam to return the ball. First
+            to 11 wins.
           </p>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6 items-start">
-          {/* Court */}
-          <div className="flex-1 flex justify-center">
-            <div className="relative">
-              <canvas
-                ref={canvasRef}
-                width={COURT_WIDTH}
-                height={COURT_HEIGHT}
-                className="rounded-xl border border-border/50 bg-card/50 backdrop-blur-sm"
-                style={{ maxWidth: "100%", height: "auto" }}
-              />
-              {!game.running && !game.gameOver && (
-                <div className="absolute inset-0 flex items-center justify-center bg-background/60 backdrop-blur-sm rounded-xl">
+        <div className="flex flex-col lg:flex-row gap-6">
+          {/* Main video panel */}
+          <div className="flex-1">
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
+              <CardContent className="p-0 relative">
+                {conn === "connected" ? (
+                  <canvas
+                    ref={canvasRef}
+                    className="w-full h-auto rounded-lg"
+                  />
+                ) : (
+                  <div className="aspect-[1066/480] flex flex-col items-center justify-center bg-secondary/30 rounded-lg gap-4">
+                    {conn === "connecting" || launching ? (
+                      <>
+                        <Loader2 className="h-12 w-12 text-primary animate-spin" />
+                        <p className="text-muted-foreground text-sm">
+                          {launching
+                            ? "Starting CV server..."
+                            : "Connecting to WebSocket..."}
+                        </p>
+                      </>
+                    ) : conn === "error" ? (
+                      <>
+                        <WifiOff className="h-12 w-12 text-red-400" />
+                        <p className="text-red-400 text-sm font-medium">
+                          {gameState.error
+                            ? "Camera Error"
+                            : "Could not connect to the CV server"}
+                        </p>
+                        <p className="text-muted-foreground text-xs max-w-sm text-center">
+                          {gameState.error ||
+                            'Make sure the Python server is running, or click "Launch & Connect" to start it automatically.'}
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <Camera className="h-16 w-16 text-muted-foreground/30" />
+                        <p className="text-muted-foreground text-sm">
+                          Connect to the CV server to start playing
+                        </p>
+                        <p className="text-muted-foreground/50 text-xs">
+                          Webcam + YOLOv8 + MediaPipe → real-time paddle game
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Hit window flash overlay */}
+                {conn === "connected" && gameState.hitWindow && (
+                  <div className="absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />
+                )}
+              </CardContent>
+            </Card>
+
+            {/* Connection controls */}
+            <div className="flex items-center gap-3 mt-4">
+              {conn === "disconnected" || conn === "error" ? (
+                <>
                   <Button
-                    size="lg"
-                    className="font-semibold px-8"
-                    onClick={startGame}
+                    onClick={launchAndConnect}
+                    disabled={launching}
+                    className="font-semibold"
                   >
-                    Start Game
+                    {launching ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Zap className="mr-2 h-4 w-4" />
+                    )}
+                    Launch & Connect
                   </Button>
-                </div>
-              )}
-              {game.gameOver && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-background/70 backdrop-blur-sm rounded-xl gap-4">
-                  <Trophy className="h-12 w-12 text-yellow-400" />
-                  <p className="text-2xl font-bold">
-                    {game.playerScore >= WIN_SCORE ? "You Win!" : "AI Wins!"}
-                  </p>
-                  <p className="text-muted-foreground">
-                    {game.playerScore} — {game.aiScore}
-                  </p>
-                  <Button onClick={resetGame} className="font-semibold">
-                    <RotateCcw className="mr-2 h-4 w-4" />
-                    Play Again
+                  <Button variant="outline" onClick={connect}>
+                    <Wifi className="mr-2 h-4 w-4" />
+                    Connect Only
                   </Button>
-                </div>
+                </>
+              ) : (
+                <Button
+                  variant="destructive"
+                  onClick={stopServer}
+                  className="font-semibold"
+                >
+                  <WifiOff className="mr-2 h-4 w-4" />
+                  Disconnect & Stop
+                </Button>
               )}
             </div>
           </div>
 
-          {/* Controls */}
-          <div className="w-full lg:w-64 space-y-4">
+          {/* Side panel */}
+          <div className="w-full lg:w-72 space-y-4">
             {/* Score */}
             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
               <CardContent className="p-5">
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-sm text-muted-foreground font-medium">Score</p>
-                </div>
+                <p className="text-sm text-muted-foreground font-medium mb-3">
+                  Score
+                </p>
                 <div className="flex items-center justify-center gap-6 text-center">
                   <div>
                     <p className="text-3xl font-bold text-primary">
-                      {game.playerScore}
+                      {gameState.playerScore}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">You</p>
                   </div>
                   <p className="text-2xl text-muted-foreground/50">—</p>
                   <div>
                     <p className="text-3xl font-bold text-red-400">
-                      {game.aiScore}
+                      {gameState.aiScore}
                     </p>
                     <p className="text-xs text-muted-foreground mt-1">AI</p>
                   </div>
@@ -377,42 +288,110 @@ export default function AIRallyPage() {
               </CardContent>
             </Card>
 
-            {/* Difficulty */}
+            {/* Stroke State */}
             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
               <CardContent className="p-5">
                 <p className="text-sm text-muted-foreground font-medium mb-3">
-                  Difficulty
+                  Stroke Detected
                 </p>
-                <div className="flex flex-col gap-2">
-                  {(["easy", "medium", "hard"] as Difficulty[]).map((d) => (
-                    <Button
-                      key={d}
-                      variant={difficulty === d ? "default" : "secondary"}
-                      size="sm"
-                      onClick={() => {
-                        setDifficulty(d);
-                        resetGame();
-                      }}
-                      className="capitalize w-full"
-                    >
-                      {d}
-                    </Button>
-                  ))}
+                <Badge
+                  variant="outline"
+                  className={`text-base px-4 py-1.5 font-semibold ${strokeClass}`}
+                >
+                  {gameState.stroke || "READY"}
+                </Badge>
+              </CardContent>
+            </Card>
+
+            {/* Velocity */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <CardContent className="p-5">
+                <p className="text-sm text-muted-foreground font-medium mb-3">
+                  Wrist Velocity
+                </p>
+                <div className="h-3 rounded-full bg-secondary overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-primary transition-all duration-100"
+                    style={{ width: `${(gameState.velocity || 0) * 100}%` }}
+                  />
                 </div>
               </CardContent>
             </Card>
 
-            {/* New Game */}
+            {/* Rally */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <CardContent className="p-5">
+                <p className="text-sm text-muted-foreground font-medium mb-1">
+                  Rally Length
+                </p>
+                <p className="text-2xl font-bold">{gameState.rally}</p>
+              </CardContent>
+            </Card>
+
+            {/* Connection status */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <CardContent className="p-5 flex items-center gap-3">
+                <span
+                  className={`relative flex h-2.5 w-2.5 ${
+                    conn === "connected" ? "" : "opacity-50"
+                  }`}
+                >
+                  {conn === "connected" && (
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                  )}
+                  <span
+                    className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                      conn === "connected"
+                        ? "bg-green-500"
+                        : conn === "error"
+                          ? "bg-red-500"
+                          : "bg-gray-500"
+                    }`}
+                  />
+                </span>
+                <span className="text-sm text-muted-foreground capitalize">
+                  {conn === "connected"
+                    ? "Live — streaming"
+                    : conn === "connecting"
+                      ? "Connecting…"
+                      : conn === "error"
+                        ? "Connection failed"
+                        : "Disconnected"}
+                </span>
+              </CardContent>
+            </Card>
+
+            {/* Reset / New Game */}
             <Button
               variant="outline"
               className="w-full"
               onClick={resetGame}
+              disabled={conn !== "connected"}
             >
               <RotateCcw className="mr-2 h-4 w-4" />
               New Game
             </Button>
           </div>
         </div>
+
+        {/* Game Over Overlay */}
+        {gameState.gameOver && conn === "connected" && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
+            <div className="text-center space-y-4">
+              <Trophy className="h-16 w-16 text-yellow-400 mx-auto" />
+              <p className="text-3xl font-bold">
+                {gameState.winner === "Player" ? "You Win!" : "AI Wins!"}
+              </p>
+              <p className="text-muted-foreground text-lg">
+                {gameState.playerScore} — {gameState.aiScore}
+              </p>
+              <Button onClick={resetGame} size="lg" className="font-semibold">
+                <RotateCcw className="mr-2 h-4 w-4" />
+                Play Again
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </PageTransition>
   );
