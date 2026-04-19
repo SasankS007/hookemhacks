@@ -83,9 +83,11 @@ class GameRenderer:
         # 8. HUD
         self._draw_hud(s, gs)
 
-        # 9. NET flash
+        # 9. NET / OUT flash
         if gs.net_flash_frames > 0:
             self._draw_net_flash(s, gs.net_flash_frames)
+        if gs.out_flash_frames > 0:
+            self._draw_out_flash(s, gs.out_flash_frames)
 
         # 10. Game over
         if gs.game_over:
@@ -209,6 +211,15 @@ class GameRenderer:
         net_surf.blit(txt, (COURT_W // 2 - txt.get_width() // 2, COURT_H // 2 - 20))
         surf.blit(net_surf, (0, 0))
 
+    # ── OUT flash ──────────────────────────────────────────────────────
+
+    def _draw_out_flash(self, surf: pygame.Surface, frames_left: int):
+        alpha = min(255, int(255 * (frames_left / 12.0)))
+        out_surf = pygame.Surface((COURT_W, COURT_H), pygame.SRCALPHA)
+        txt = self.font_net.render("OUT", True, (255, 180, 40, alpha))
+        out_surf.blit(txt, (COURT_W // 2 - txt.get_width() // 2, COURT_H // 2 - 20))
+        surf.blit(out_surf, (0, 0))
+
     # ── HUD ─────────────────────────────────────────────────────────────
 
     def _draw_hud(self, surf: pygame.Surface, gs: GameState):
@@ -219,8 +230,11 @@ class GameRenderer:
         )
         surf.blit(score_txt, (COURT_W // 2 - score_txt.get_width() // 2, 8))
 
-        # Rally
-        rally_txt = self.font_small.render(f"Rally {gs.rally}", True, (140, 140, 140))
+        # Rally + difficulty
+        diff_label = gs.difficulty.upper() if hasattr(gs, "difficulty") else "HARD"
+        rally_txt = self.font_small.render(
+            f"Rally {gs.rally}   [{diff_label}]", True, (140, 140, 140)
+        )
         surf.blit(rally_txt, (COURT_W // 2 - rally_txt.get_width() // 2, 28))
 
         # Stroke score + weakest metric (bottom-left during rally)

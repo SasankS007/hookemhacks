@@ -19,6 +19,8 @@ const WS_URL = "ws://localhost:8765";
 
 type ConnState = "disconnected" | "connecting" | "connected" | "error";
 
+type Difficulty = "easy" | "medium" | "hard";
+
 interface GameState {
   stroke: string | null;
   velocity: number;
@@ -28,6 +30,7 @@ interface GameState {
   winner: string | null;
   hitWindow: boolean;
   rally: number;
+  difficulty?: Difficulty;
   error?: string;
 }
 
@@ -53,6 +56,7 @@ export default function AIRallyPage() {
     rally: 0,
   });
   const [launching, setLaunching] = useState(false);
+  const [difficulty, setDifficulty] = useState<Difficulty>("hard");
 
   const drawFrame = useCallback(async (blob: Blob) => {
     const canvas = canvasRef.current;
@@ -92,6 +96,7 @@ export default function AIRallyPage() {
             return;
           }
           setGameState(data);
+          if (data.difficulty) setDifficulty(data.difficulty);
         } catch {
           /* ignore malformed json */
         }
@@ -112,6 +117,11 @@ export default function AIRallyPage() {
 
   const resetGame = useCallback(() => {
     wsRef.current?.send(JSON.stringify({ action: "reset" }));
+  }, []);
+
+  const changeDifficulty = useCallback((level: Difficulty) => {
+    setDifficulty(level);
+    wsRef.current?.send(JSON.stringify({ action: "set_difficulty", level }));
   }, []);
 
   const launchAndConnect = useCallback(async () => {
@@ -358,6 +368,31 @@ export default function AIRallyPage() {
                         ? "Connection failed"
                         : "Disconnected"}
                 </span>
+              </CardContent>
+            </Card>
+
+            {/* Difficulty */}
+            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+              <CardContent className="p-5">
+                <p className="text-sm text-muted-foreground font-medium mb-3">
+                  Difficulty
+                </p>
+                <div className="flex gap-2">
+                  {(["easy", "medium", "hard"] as Difficulty[]).map((lvl) => (
+                    <button
+                      key={lvl}
+                      onClick={() => changeDifficulty(lvl)}
+                      disabled={conn !== "connected"}
+                      className={`flex-1 py-1.5 rounded-md text-xs font-semibold capitalize transition-colors ${
+                        difficulty === lvl
+                          ? "bg-primary text-primary-foreground"
+                          : "bg-secondary/60 text-muted-foreground hover:bg-secondary"
+                      } disabled:opacity-40`}
+                    >
+                      {lvl}
+                    </button>
+                  ))}
+                </div>
               </CardContent>
             </Card>
 

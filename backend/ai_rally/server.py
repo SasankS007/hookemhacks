@@ -30,15 +30,14 @@ WS_PORT = 8765
 TARGET_FPS = 30
 
 
-async def _stream(ws):
+async def _stream(ws, game: GameEngine):
     loop = asyncio.get_event_loop()
     cv_engine = CVEngine()
-    game = GameEngine()
 
     test_frame, _, _ = await loop.run_in_executor(None, cv_engine.process_frame)
     if test_frame is None:
         await ws.send(json.dumps({
-            "error": "Camera not available. On macOS, open System Settings → Privacy & Security → Camera and grant access to Terminal (or the app running Python). Then restart the CV server.",
+            "error": "Camera not available. On macOS, open System Settings -> Privacy & Security -> Camera and grant access to Terminal (or the app running Python). Then restart the CV server.",
         }))
         cv_engine.release()
         return
@@ -56,7 +55,6 @@ async def _stream(ws):
 
             stroke = stroke or "READY"
 
-            # Pull classifier data for the game
             clf = cv_engine.classifier
             net_event = clf.last_net_event if stroke in ("FOREHAND", "BACKHAND") else False
             fo = clf.frame_output
@@ -69,7 +67,6 @@ async def _stream(ws):
                 stroke_phase=fo.get("phase", "READY"),
             )
 
-            # After the game reads the stroke, reset classifier for next swing
             if stroke in ("FOREHAND", "BACKHAND") and clf._emitted:
                 clf._reset_swing()
 
@@ -95,6 +92,7 @@ async def _stream(ws):
                     "netEvent": game.net_flash_active,
                     "strokeScore": fo.get("score", 0),
                     "returnProbability": fo.get("return_probability", 0),
+                    "difficulty": game.difficulty,
                 })
             )
 
@@ -106,6 +104,7 @@ async def _stream(ws):
 
 
 async def _handler(ws):
+    game = GameEngine()
     game_task: asyncio.Task | None = None
 
     async def _listen():
@@ -114,13 +113,18 @@ async def _handler(ws):
                 msg = json.loads(raw)
             except (json.JSONDecodeError, TypeError):
                 continue
-            if msg.get("action") == "reset" and game_task:
+            action = msg.get("action")
+            if action == "reset" and game_task:
+                game.reset()
                 game_task.cancel()
+            elif action == "set_difficulty":
+                level = msg.get("level", "hard")
+                game.set_difficulty(level)
 
     listener = asyncio.create_task(_listen())
 
     while True:
-        game_task = asyncio.create_task(_stream(ws))
+        game_task = asyncio.create_task(_stream(ws, game))
         try:
             await game_task
         except asyncio.CancelledError:
@@ -152,7 +156,7 @@ def _kill_stale(port: int):
 
 async def main():
     _kill_stale(WS_PORT)
-    print(f"AI Rally CV server → ws://{WS_HOST}:{WS_PORT}")
+    print(f"AI Rally CV server -> ws://{WS_HOST}:{WS_PORT}")
     async with websockets.serve(
         _handler,
         WS_HOST,

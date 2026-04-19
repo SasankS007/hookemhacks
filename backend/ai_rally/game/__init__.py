@@ -14,11 +14,18 @@ class GameEngine:
     """Drop-in replacement for the old game_engine.GameEngine."""
 
     def __init__(self):
-        self.state = GameState()
+        self._difficulty = "hard"
+        self.state = GameState(difficulty=self._difficulty)
         self._renderer = GameRenderer()
 
     def reset(self):
-        self.state = GameState()
+        self.state = GameState(difficulty=self._difficulty)
+
+    def set_difficulty(self, level: str):
+        level = level.lower()
+        if level in ("easy", "medium", "hard"):
+            self._difficulty = level
+            self.state.difficulty = level
 
     def update(self, stroke_state: str, *, net_event: bool = False,
                stroke_score: int = 0, weakest_metric: str = "",
@@ -46,3 +53,5 @@ class GameEngine:
     def rally(self): return self.state.rally
     @property
     def net_flash_active(self): return self.state.net_flash_frames > 0
+    @property
+    def difficulty(self): return self._difficulty
