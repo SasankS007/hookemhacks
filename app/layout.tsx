@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
-import { Inter, Press_Start_2P, VT323 } from "next/font/google";
+import { Press_Start_2P, VT323 } from "next/font/google";
 import "./globals.css";
 import { Navbar } from "@/components/nav/Navbar";
+import { BgmProvider } from "@/components/BgmProvider";
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-sans" });
 const pixelFont = Press_Start_2P({
   weight: "400",
   subsets: ["latin"],
@@ -20,7 +20,7 @@ const vt323 = VT323({
 export const metadata: Metadata = {
   title: "Stroke Sensei — AI Pickleball Training",
   description:
-    "AI-powered pickleball training platform with stroke analysis, AI rally practice, and footage review.",
+    "Retro Tamagotchi-style pickleball coach: live stroke analysis and AI rally practice.",
 };
 
 export default function RootLayout({
@@ -31,10 +31,11 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${pixelFont.variable} ${vt323.variable}`}
+      className={`${pixelFont.variable} ${vt323.variable}`}
     >
-      <body className={inter.className}>
+      <body className={vt323.className}>
         <Navbar />
+        <BgmProvider />
         <main className="pt-16">{children}</main>
       </body>
     </html>

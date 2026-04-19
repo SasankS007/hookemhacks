@@ -5,12 +5,12 @@ import { motion } from "framer-motion";
 import { PageTransition } from "@/components/PageTransition";
 import {
   Activity,
+  BookmarkPlus,
   Camera,
   CheckCircle2,
   Loader2,
   RotateCcw,
   Sparkles,
-  Square,
   Swords,
   Target,
   TriangleAlert,
@@ -18,6 +18,8 @@ import {
   WifiOff,
   Zap,
 } from "lucide-react";
+import { useAppStore } from "@/store/useAppStore";
+import { playUiClick } from "@/lib/tamagotchiAudio";
 
 const WS_URL = "ws://localhost:8766";
 
@@ -100,12 +102,6 @@ const HANDEDNESS_OPTIONS = [
   { value: "left", label: "LEFTY" },
 ] as const;
 
-const SCORE_COLORS = {
-  high: "bg-green-500",
-  medium: "bg-yellow-400",
-  low: "bg-red-400",
-};
-
 function TamaButton({
   children,
   onClick,
@@ -123,7 +119,7 @@ function TamaButton({
     green:
       "bg-green-500 text-white shadow-[6px_6px_0px_0px_#15803d] hover:shadow-[2px_2px_0px_0px_#15803d]",
     white:
-      "bg-white text-slate-700 shadow-[6px_6px_0px_0px_rgba(30,41,59,0.22)] hover:shadow-[2px_2px_0px_0px_rgba(30,41,59,0.24)]",
+      "bg-white text-[#2e4a1e] shadow-[6px_6px_0px_0px_rgba(30,41,59,0.22)] hover:shadow-[2px_2px_0px_0px_rgba(30,41,59,0.24)]",
     red:
       "bg-red-400 text-white shadow-[6px_6px_0px_0px_#dc2626] hover:shadow-[2px_2px_0px_0px_#dc2626]",
     blue:
@@ -134,6 +130,9 @@ function TamaButton({
     <button
       type={type}
       onClick={onClick}
+      onPointerDown={() => {
+        if (!disabled) void playUiClick();
+      }}
       disabled={disabled}
       className={`rounded-2xl border-[2.5px] border-slate-800 px-4 py-3 font-pixel text-[9px] transition-[box-shadow,transform,opacity] duration-100 hover:translate-x-[4px] hover:translate-y-[4px] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-x-0 disabled:hover:translate-y-0 ${styles[variant]}`}
     >
@@ -154,7 +153,7 @@ function StatBar({
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between gap-3">
-        <p className="font-pixel text-[8px] text-slate-500">{label}</p>
+        <p className="font-pixel text-[8px] text-[#6b5c3e]">{label}</p>
         <p className="font-vt323 text-[1.45rem] leading-none text-slate-800">
           {Math.round(value)}
         </p>
@@ -184,6 +183,10 @@ export default function StrokeAnalysisPage() {
   const [senseiFeedback, setSenseiFeedback] = useState<SenseiFeedback | null>(null);
   const [senseiLoading, setSenseiLoading] = useState(false);
   const [senseiError, setSenseiError] = useState<string | null>(null);
+  const [saveHubHint, setSaveHubHint] = useState<string | null>(null);
+  const [dojoSessionEnd, setDojoSessionEnd] = useState(false);
+  const sawUncalibratedRef = useRef(false);
+  const saveDojoStroke = useAppStore((s) => s.saveDojoStroke);
 
   const drawFrame = useCallback(async (blob: Blob) => {
     const canvas = canvasRef.current;
@@ -199,6 +202,7 @@ export default function StrokeAnalysisPage() {
   }, []);
 
   const connect = useCallback(() => {
+    sawUncalibratedRef.current = false;
     if (wsRef.current) {
       wsRef.current.close();
       wsRef.current = null;
@@ -294,11 +298,31 @@ export default function StrokeAnalysisPage() {
     }
   }, [disconnect]);
 
+  const redoDojoCalibration = useCallback(() => {
+    setDojoSessionEnd(false);
+    sawUncalibratedRef.current = false;
+    void launchAndConnect();
+  }, [launchAndConnect]);
+
   useEffect(() => {
     return () => {
       wsRef.current?.close();
     };
   }, []);
+
+  useEffect(() => {
+    if (conn !== "connected" || !state) return;
+    if (!state.calibrated) {
+      sawUncalibratedRef.current = true;
+      return;
+    }
+    if (state.calibrated && sawUncalibratedRef.current && !dojoSessionEnd) {
+      sawUncalibratedRef.current = false;
+      setDojoSessionEnd(true);
+      void stopServer();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- gate on calibrated only
+  }, [conn, state?.calibrated, dojoSessionEnd, stopServer]);
 
   const calibrated = state?.calibrated ?? false;
   const phase = state?.phase ?? "ready";
@@ -309,6 +333,9 @@ export default function StrokeAnalysisPage() {
   const history = state?.shotHistory ?? [];
   const latestShotTimestamp =
     history.length > 0 ? history[history.length - 1]?.timestamp ?? 0 : 0;
+
+  /** Mirrored webcam vs real-world dominant hand — Sensei expects the opposite label. */
+  const handednessForApi = handedness === "right" ? "left" : "right";
 
   const refreshSenseiFeedback = useCallback(async () => {
     if (!calibrated) return;
@@ -323,7 +350,7 @@ export default function StrokeAnalysisPage() {
         },
         body: JSON.stringify({
           strokeType: strokeFocus === "auto" ? shotType : strokeFocus,
-          handedness,
+          handedness: handednessForApi,
           phase,
           shotConfidence: state?.shotConfidence ?? 0,
           liveMetrics,
@@ -345,7 +372,7 @@ export default function StrokeAnalysisPage() {
     } finally {
       setSenseiLoading(false);
     }
-  }, [calibrated, strokeFocus, shotType, handedness, phase, state?.shotConfidence, liveMetrics, lastMetrics, chain, state?.bodyProportions, state?.coachingTips, history]);
+  }, [calibrated, strokeFocus, shotType, handednessForApi, phase, state?.shotConfidence, liveMetrics, lastMetrics, chain, state?.bodyProportions, state?.coachingTips, history]);
 
   useEffect(() => {
     if (!calibrated) return;
@@ -376,6 +403,17 @@ export default function StrokeAnalysisPage() {
       : (state?.coachingTips ?? []).map((tip) => tip.tip);
   const positives = senseiFeedback?.positives ?? [];
 
+  const saveRepToHub = () => {
+    if (!calibrated && !dojoSessionEnd) return;
+    saveDojoStroke({
+      strokeLabel: modeLabel.replace(/_/g, " ").toUpperCase(),
+      score: overallScore,
+      phase: PHASE_LABELS[phase] ?? phase,
+    });
+    setSaveHubHint("Saved to Training Hub");
+    window.setTimeout(() => setSaveHubHint(null), 2400);
+  };
+
   return (
     <PageTransition>
       <div className="relative min-h-screen overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
@@ -384,13 +422,13 @@ export default function StrokeAnalysisPage() {
           <div className="tama-card tama-card-green px-6 py-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="font-pixel text-[8px] tracking-[0.28em] text-slate-500">
-                  MODE 01
+                <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">
+                  DOJO
                 </p>
                 <h1 className="mt-3 font-pixel text-[clamp(1.35rem,4vw,2.2rem)] leading-[1.55] text-slate-800">
-                  STROKE MODE
+                  THE DOJO
                 </h1>
-                <p className="mt-3 font-vt323 text-[1.9rem] leading-[1.02] text-slate-600">
+                <p className="mt-3 font-vt323 text-[1.9rem] leading-[1.02] text-[#4a5d3a]">
                   Live webcam form check with Gemini Sensei coaching built into every rep.
                 </p>
               </div>
@@ -420,12 +458,12 @@ export default function StrokeAnalysisPage() {
               <div className="tama-card tama-card-blue overflow-hidden">
                 <div className="flex items-center justify-between border-b-[2.5px] border-slate-800 bg-sky-100 px-5 py-3">
                   <div>
-                    <p className="font-pixel text-[8px] text-slate-500">LIVE FEED</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">LIVE FEED</p>
                     <p className="font-vt323 text-[1.8rem] leading-none text-slate-800">
                       CAMERA + ANALYSIS
                     </p>
                   </div>
-                  <div className="rounded-xl border-[2px] border-slate-800 bg-white px-3 py-2 font-pixel text-[8px] text-slate-700">
+                  <div className="rounded-xl border-[2px] border-slate-800 bg-white px-3 py-2 font-pixel text-[8px] text-[#2e4a1e]">
                     {conn === "connected" ? "ONLINE" : conn === "connecting" || launching ? "LOADING" : conn === "error" ? "ERROR" : "IDLE"}
                   </div>
                 </div>
@@ -439,8 +477,23 @@ export default function StrokeAnalysisPage() {
                           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-400 opacity-75" />
                           <span className="relative inline-flex h-3 w-3 rounded-full bg-red-500" />
                         </span>
-                        <span className="font-pixel text-[8px] text-slate-700">LIVE</span>
+                        <span className="font-pixel text-[8px] text-[#2e4a1e]">LIVE</span>
                       </div>
+                      {state && !state.calibrated && !dojoSessionEnd && (
+                        <div className="absolute inset-x-0 bottom-0 border-t-[2px] border-slate-800 bg-slate-950/90 px-4 py-3">
+                          <p className="mb-2 font-pixel text-[7px] uppercase tracking-wide text-amber-200">
+                            Calibrating — hold still
+                          </p>
+                          <div className="h-3 overflow-hidden rounded-full border-[2px] border-slate-700 bg-slate-800">
+                            <div
+                              className="h-full rounded-full bg-yellow-400 transition-[width] duration-150 ease-out"
+                              style={{
+                                width: `${Math.min(100, Math.max(0, (state.calibrationProgress ?? 0) * 100))}%`,
+                              }}
+                            />
+                          </div>
+                        </div>
+                      )}
                     </>
                   ) : (
                     <div className="flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
@@ -477,19 +530,19 @@ export default function StrokeAnalysisPage() {
 
                 <div className="grid gap-4 border-t-[2.5px] border-slate-800 bg-white px-5 py-5 sm:grid-cols-3">
                   <div className="rounded-2xl border-[2px] border-slate-800 bg-amber-50 px-4 py-3">
-                    <p className="font-pixel text-[8px] text-slate-500">SHOT</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">SHOT</p>
                     <p className="font-vt323 text-[2rem] leading-none text-slate-800">
                       {String(modeLabel || "ready").replaceAll("_", " ").toUpperCase()}
                     </p>
                   </div>
                   <div className="rounded-2xl border-[2px] border-slate-800 bg-amber-50 px-4 py-3">
-                    <p className="font-pixel text-[8px] text-slate-500">PHASE</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">PHASE</p>
                     <p className="font-vt323 text-[2rem] leading-none text-slate-800">
                       {PHASE_LABELS[phase] ?? phase.toUpperCase()}
                     </p>
                   </div>
                   <div className="rounded-2xl border-[2px] border-slate-800 bg-amber-50 px-4 py-3">
-                    <p className="font-pixel text-[8px] text-slate-500">SENSEI SCORE</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">SENSEI SCORE</p>
                     <p className="font-vt323 text-[2rem] leading-none text-slate-800">
                       {Math.round(overallScore)}
                     </p>
@@ -500,7 +553,7 @@ export default function StrokeAnalysisPage() {
               <div className="tama-card tama-card-yellow px-5 py-5">
                 <div className="flex items-center gap-2">
                   <Activity className="h-5 w-5 text-yellow-700" />
-                  <p className="font-pixel text-[9px] text-slate-700">LIVE METERS</p>
+                  <p className="font-pixel text-[9px] text-[#2e4a1e]">LIVE METERS</p>
                 </div>
                 <div className="mt-4 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
                   <StatBar label="ELBOW" value={liveMetrics.elbowAngle ?? 0} color="bg-green-500" />
@@ -510,11 +563,49 @@ export default function StrokeAnalysisPage() {
                 </div>
               </div>
 
+              <div className="tama-card tama-card-blue px-5 py-5">
+                <div className="flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-sky-700" />
+                  <p className="font-pixel text-[9px] text-[#2e4a1e]">STATUS</p>
+                </div>
+                <div className="mt-4 space-y-4">
+                  <div>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">CHAIN FLOW</p>
+                    <p className="mt-1 font-vt323 text-[1.8rem] leading-none text-slate-800">
+                      {chain?.chainCorrect ? "LEGS → HIPS → HAND" : "CHAIN BREAK DETECTED"}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">RECENT REPS</p>
+                    <div className="mt-2 space-y-2">
+                      {history.slice(-4).reverse().map((entry) => (
+                        <div
+                          key={`${entry.timestamp}-${entry.shotType}`}
+                          className="flex items-center justify-between rounded-2xl border-[2px] border-slate-800 bg-white px-4 py-3"
+                        >
+                          <p className="font-pixel text-[8px] text-[#2e4a1e]">
+                            {entry.shotType.replaceAll("_", " ").toUpperCase()}
+                          </p>
+                          <p className="font-vt323 text-[1.6rem] leading-none text-slate-800">
+                            {Math.round(entry.overall)}
+                          </p>
+                        </div>
+                      ))}
+                      {history.length === 0 && (
+                        <p className="font-vt323 text-[1.5rem] leading-none text-[#4a5d3a]">
+                          No reps scored yet. Start the feed and swing through one full motion.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               {lastMetrics && (
                 <div className="tama-card tama-card-orange px-5 py-5">
                   <div className="flex items-center gap-2">
                     <Target className="h-5 w-5 text-orange-700" />
-                    <p className="font-pixel text-[9px] text-slate-700">LAST REP BREAKDOWN</p>
+                    <p className="font-pixel text-[9px] text-[#2e4a1e]">LAST REP BREAKDOWN</p>
                   </div>
                   <div className="mt-4 grid gap-4 sm:grid-cols-2">
                     {Object.entries(lastMetrics)
@@ -542,12 +633,12 @@ export default function StrokeAnalysisPage() {
               <div className="tama-card tama-card-pink px-5 py-5">
                 <div className="flex items-center gap-2">
                   <Swords className="h-5 w-5 text-pink-700" />
-                  <p className="font-pixel text-[9px] text-slate-700">SENSEI SETUP</p>
+                  <p className="font-pixel text-[9px] text-[#2e4a1e]">SENSEI SETUP</p>
                 </div>
 
                 <div className="mt-4 space-y-4">
                   <div>
-                    <p className="font-pixel text-[8px] text-slate-500">DOMINANT HAND</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">DOMINANT HAND</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {HANDEDNESS_OPTIONS.map((option) => (
                         <TamaButton
@@ -562,7 +653,7 @@ export default function StrokeAnalysisPage() {
                   </div>
 
                   <div>
-                    <p className="font-pixel text-[8px] text-slate-500">STROKE FOCUS</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">STROKE FOCUS</p>
                     <div className="mt-2 flex flex-wrap gap-2">
                       {STROKE_FOCUS_OPTIONS.map((option) => (
                         <TamaButton
@@ -584,20 +675,33 @@ export default function StrokeAnalysisPage() {
                 animate={{ opacity: 1, y: 0 }}
                 className="tama-card tama-card-green px-5 py-5"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <div className="flex items-center gap-2">
                       <Sparkles className="h-5 w-5 text-green-700" />
-                      <p className="font-pixel text-[9px] text-slate-700">GEMINI SENSEI</p>
+                      <p className="font-pixel text-[9px] text-[#2e4a1e]">GEMINI SENSEI</p>
                     </div>
                     <p className="mt-3 font-vt323 text-[2rem] leading-none text-slate-800">
                       {senseiFeedback?.provider === "gemini" ? "LIVE COACH ONLINE" : "SENSEI FALLBACK ACTIVE"}
                     </p>
                   </div>
-                  <TamaButton onClick={() => void refreshSenseiFeedback()} disabled={!calibrated || senseiLoading}>
-                    {senseiLoading ? "THINKING..." : "REFRESH"}
-                  </TamaButton>
+                  <div className="flex flex-wrap gap-2">
+                    <TamaButton
+                      variant="blue"
+                      onClick={saveRepToHub}
+                      disabled={!calibrated}
+                    >
+                      <BookmarkPlus className="mr-2 inline h-4 w-4" />
+                      SAVE TO HUB
+                    </TamaButton>
+                    <TamaButton onClick={() => void refreshSenseiFeedback()} disabled={!calibrated || senseiLoading}>
+                      {senseiLoading ? "THINKING..." : "REFRESH"}
+                    </TamaButton>
+                  </div>
                 </div>
+                {saveHubHint && (
+                  <p className="mt-2 font-pixel text-[8px] text-green-700">{saveHubHint}</p>
+                )}
 
                 {senseiError && (
                   <div className="mt-4 rounded-2xl border-[2px] border-red-300 bg-red-50 px-4 py-3">
@@ -608,8 +712,8 @@ export default function StrokeAnalysisPage() {
                 )}
 
                 <div className="mt-4 rounded-2xl border-[2px] border-slate-800 bg-white px-4 py-4">
-                  <p className="font-pixel text-[8px] text-slate-500">SENSEI SAYS</p>
-                  <p className="mt-2 font-vt323 text-[1.7rem] leading-[0.96] text-slate-700">
+                  <p className="font-pixel text-[8px] text-[#6b5c3e]">SENSEI SAYS</p>
+                  <p className="mt-2 font-vt323 text-[1.7rem] leading-[0.96] text-[#2e4a1e]">
                     {senseiFeedback?.perfect_model_comparison ||
                       "Boot the camera, finish calibration, then swing a live rep so Sensei can coach the mechanics in real time."}
                   </p>
@@ -619,7 +723,7 @@ export default function StrokeAnalysisPage() {
                   {cueLines.slice(0, 3).map((cue) => (
                     <div key={cue} className="rounded-2xl border-[2px] border-slate-800 bg-lime-50 px-4 py-3">
                       <p className="font-pixel text-[8px] text-green-700">NEXT BALL</p>
-                      <p className="mt-1 font-vt323 text-[1.55rem] leading-none text-slate-700">
+                      <p className="mt-1 font-vt323 text-[1.55rem] leading-none text-[#2e4a1e]">
                         {cue}
                       </p>
                     </div>
@@ -628,16 +732,16 @@ export default function StrokeAnalysisPage() {
 
                 {topIssues.length > 0 && (
                   <div className="mt-5 space-y-3">
-                    <p className="font-pixel text-[8px] text-slate-500">TOP FIXES</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">TOP FIXES</p>
                     {topIssues.slice(0, 3).map((issue) => (
                       <div key={`${issue.name}-${issue.fix}`} className="rounded-2xl border-[2px] border-slate-800 bg-white px-4 py-4">
                         <div className="flex items-center justify-between gap-3">
-                          <p className="font-pixel text-[8px] text-slate-700">{issue.name.toUpperCase()}</p>
-                          <span className="rounded-xl border-[2px] border-slate-800 bg-amber-50 px-2 py-1 font-pixel text-[7px] text-slate-700">
+                          <p className="font-pixel text-[8px] text-[#2e4a1e]">{issue.name.toUpperCase()}</p>
+                          <span className="rounded-xl border-[2px] border-slate-800 bg-amber-50 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
                             {issue.severity.toUpperCase()}
                           </span>
                         </div>
-                        <p className="mt-2 font-vt323 text-[1.45rem] leading-none text-slate-600">
+                        <p className="mt-2 font-vt323 text-[1.45rem] leading-none text-[#4a5d3a]">
                           {issue.description}
                         </p>
                         <p className="mt-2 font-vt323 text-[1.55rem] leading-none text-slate-800">
@@ -650,10 +754,10 @@ export default function StrokeAnalysisPage() {
 
                 {topDrills.length > 0 && (
                   <div className="mt-5 space-y-3">
-                    <p className="font-pixel text-[8px] text-slate-500">DRILLS</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">DRILLS</p>
                     {topDrills.slice(0, 2).map((drill) => (
                       <div key={drill} className="rounded-2xl border-[2px] border-slate-800 bg-sky-50 px-4 py-3">
-                        <p className="font-vt323 text-[1.5rem] leading-none text-slate-700">{drill}</p>
+                        <p className="font-vt323 text-[1.5rem] leading-none text-[#2e4a1e]">{drill}</p>
                       </div>
                     ))}
                   </div>
@@ -661,56 +765,45 @@ export default function StrokeAnalysisPage() {
 
                 {positives.length > 0 && (
                   <div className="mt-5 space-y-3">
-                    <p className="font-pixel text-[8px] text-slate-500">WHAT'S WORKING</p>
+                    <p className="font-pixel text-[8px] text-[#6b5c3e]">WORKING WELL</p>
                     {positives.slice(0, 2).map((positive) => (
                       <div key={positive} className="rounded-2xl border-[2px] border-slate-800 bg-green-50 px-4 py-3">
                         <div className="flex items-center gap-2">
                           <CheckCircle2 className="h-4 w-4 text-green-600" />
-                          <p className="font-vt323 text-[1.5rem] leading-none text-slate-700">{positive}</p>
+                          <p className="font-vt323 text-[1.5rem] leading-none text-[#2e4a1e]">{positive}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 )}
               </motion.div>
-
-              <div className="tama-card tama-card-blue px-5 py-5">
-                <div className="flex items-center gap-2">
-                  <Zap className="h-5 w-5 text-sky-700" />
-                  <p className="font-pixel text-[9px] text-slate-700">STATUS</p>
-                </div>
-                <div className="mt-4 space-y-4">
-                  <div>
-                    <p className="font-pixel text-[8px] text-slate-500">CHAIN FLOW</p>
-                    <p className="mt-1 font-vt323 text-[1.8rem] leading-none text-slate-800">
-                      {chain?.chainCorrect ? "LEGS → HIPS → HAND" : "CHAIN BREAK DETECTED"}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="font-pixel text-[8px] text-slate-500">RECENT REPS</p>
-                    <div className="mt-2 space-y-2">
-                      {history.slice(-4).reverse().map((entry) => (
-                        <div key={`${entry.timestamp}-${entry.shotType}`} className="flex items-center justify-between rounded-2xl border-[2px] border-slate-800 bg-white px-4 py-3">
-                          <p className="font-pixel text-[8px] text-slate-700">
-                            {entry.shotType.replaceAll("_", " ").toUpperCase()}
-                          </p>
-                          <p className="font-vt323 text-[1.6rem] leading-none text-slate-800">
-                            {Math.round(entry.overall)}
-                          </p>
-                        </div>
-                      ))}
-                      {history.length === 0 && (
-                        <p className="font-vt323 text-[1.5rem] leading-none text-slate-600">
-                          No reps scored yet. Start the feed and swing through one full motion.
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
             </div>
           </div>
         </div>
+
+        {dojoSessionEnd && (
+          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-amber-50/95 px-4 backdrop-blur-sm">
+            <div className="tama-card tama-card-yellow max-w-lg space-y-6 px-8 py-10 text-center">
+              <p className="font-pixel text-[clamp(0.85rem,3vw,1.1rem)] text-slate-800">
+                CALIBRATION COMPLETE
+              </p>
+              <p className="font-vt323 text-[1.5rem] leading-tight text-[#4a5d3a]">
+                Camera session ended. Save this rep to the Training Hub, or redo calibration
+                for another capture.
+              </p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                <TamaButton variant="blue" onClick={saveRepToHub}>
+                  <BookmarkPlus className="mr-2 inline h-4 w-4" />
+                  SAVE TO HUB
+                </TamaButton>
+                <TamaButton variant="green" onClick={redoDojoCalibration}>
+                  <RotateCcw className="mr-2 inline h-4 w-4" />
+                  REDO
+                </TamaButton>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </PageTransition>
   );

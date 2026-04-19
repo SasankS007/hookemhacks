@@ -29,6 +29,9 @@ WS_HOST = "0.0.0.0"
 WS_PORT = 8765
 TARGET_FPS = 30
 
+# Match CVEngine webcam frame (640×480) so camera + court panes are equal in the JPEG
+PANEL_W, PANEL_H = 640, 480
+
 
 async def _stream(ws, game: GameEngine):
     loop = asyncio.get_event_loop()
@@ -65,6 +68,7 @@ async def _stream(ws, game: GameEngine):
                 stroke_score=fo.get("score", 0),
                 weakest_metric=min(fo.get("metrics", {"": 0}), key=lambda k: fo["metrics"].get(k, 1), default="") if fo.get("metrics") else "",
                 stroke_phase=fo.get("phase", "READY"),
+                wrist_dx=fo.get("wrist_dx", 0.0),
             )
 
             if stroke in ("FOREHAND", "BACKHAND") and clf._emitted:
@@ -73,8 +77,8 @@ async def _stream(ws, game: GameEngine):
             court_rgb = await loop.run_in_executor(None, game.render)
             court_bgr = cv2.cvtColor(court_rgb, cv2.COLOR_RGB2BGR)
 
-            court_resized = cv2.resize(court_bgr, (426, 480))
-            combined = np.hstack([frame, court_resized])
+            court_panel = cv2.resize(court_bgr, (PANEL_W, PANEL_H))
+            combined = np.hstack([frame, court_panel])
 
             _, buf = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, 80])
             await ws.send(buf.tobytes())
@@ -118,7 +122,7 @@ async def _handler(ws):
                 game.reset()
                 game_task.cancel()
             elif action == "set_difficulty":
-                level = msg.get("level", "hard")
+                level = msg.get("level", "easy")
                 game.set_difficulty(level)
 
     listener = asyncio.create_task(_listen())

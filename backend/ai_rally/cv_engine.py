@@ -7,9 +7,10 @@ CV processing pipeline — runs paddle detection + MediaPipe Pose on every frame
 * When neither YOLO nor HSV finds a paddle, a synthetic bounding box is
   generated from the pose wrist+elbow direction so the sweet-spot crosshair
   always appears near the hand.
-* The paddle arm is inferred per-frame (whichever wrist is closest to the
-  detected paddle centre) with EMA smoothing to prevent flicker.  Only the
-  paddle arm is highlighted in the overlay; the other arm is irrelevant.
+* When a real paddle box is visible (HSV/YOLO), the nearer wrist arm is
+  locked and kept until the paddle is lost for ~2.4s — tracking does not hop
+  to the other arm mid-rally.  Without a real box, EMA + motion fallback
+  applies.  Only the active arm is highlighted.
 * Press D to toggle debug mode — draws all HSV contours in blue and
   prints the HSV value of the frame centre once per second.
 * All frames resized to 640x480 before inference.
@@ -100,6 +101,10 @@ class CVEngine:
         self._arm_ema = 0.0  # positive → right arm, negative → left
         self._arm_ids: tuple[int, int, int] = R_ARM
         self._prev_landmarks = None
+        # Lock to the arm nearest the real paddle; do not hop to the other arm.
+        self._paddle_arm_lock: tuple[int, int, int] | None = None
+        self._frames_since_real_paddle = 0
+        self._paddle_lock_unlock_after = 72  # ~2.4s @ 30fps without real paddle
 
         # ── Debug mode (D key) ───────────────────────────────────────────
         self._debug_mode = False
@@ -178,11 +183,9 @@ class CVEngine:
             raw = pose_result.pose_landmarks[0]
             landmarks = [_LandmarkProxy(lm) for lm in raw]
 
-            # ── Infer paddle arm ─────────────────────────────────────────
-            paddle_norm = self._paddle_center_norm()
-            self._arm_ids = self._infer_paddle_arm(landmarks, paddle_norm)
+            had_real_paddle = len(self._latest_boxes) > 0
 
-            # ── Synthetic box when no real detection ─────────────────────
+            # ── Synthetic box when no real detection (uses prior arm_ids) ─
             if not self._latest_boxes:
                 synth = self._synthetic_paddle_box(landmarks, self._arm_ids)
                 if synth is not None:
@@ -190,6 +193,10 @@ class CVEngine:
                     self._is_synthetic_box = True
 
             paddle_norm = self._paddle_center_norm()
+            self._arm_ids = self._infer_paddle_arm(
+                landmarks, paddle_norm, had_real_paddle
+            )
+
             self.classifier.update(
                 landmarks,
                 paddle_center_norm=paddle_norm,
@@ -203,21 +210,49 @@ class CVEngine:
 
     # ── Paddle arm inference ─────────────────────────────────────────────
 
-    def _infer_paddle_arm(self, landmarks, paddle_center_norm):
-        vote = 0.0
-
-        if paddle_center_norm is not None and not self._is_synthetic_box:
+    def _infer_paddle_arm(
+        self,
+        landmarks,
+        paddle_center_norm,
+        had_real_paddle: bool,
+    ):
+        def pick_arm_tuple() -> tuple[int, int, int]:
+            if paddle_center_norm is None:
+                return R_ARM
             px, py = paddle_center_norm
             lv = landmarks[L_WRIST].visibility
             rv = landmarks[R_WRIST].visibility
             if lv > 0.3 and rv > 0.3:
                 ld = math.hypot(landmarks[L_WRIST].x - px, landmarks[L_WRIST].y - py)
                 rd = math.hypot(landmarks[R_WRIST].x - px, landmarks[R_WRIST].y - py)
-                vote = 1.0 if rd < ld else -1.0
-            elif rv > 0.3:
-                vote = 1.0
-            elif lv > 0.3:
-                vote = -1.0
+                return R_ARM if rd < ld else L_ARM
+            if rv > 0.3:
+                return R_ARM
+            if lv > 0.3:
+                return L_ARM
+            return R_ARM
+
+        if had_real_paddle and paddle_center_norm is not None:
+            if self._paddle_arm_lock is None:
+                self._paddle_arm_lock = pick_arm_tuple()
+            self._frames_since_real_paddle = 0
+            return self._paddle_arm_lock
+
+        self._frames_since_real_paddle += 1
+
+        if (
+            self._paddle_arm_lock is not None
+            and self._frames_since_real_paddle < self._paddle_lock_unlock_after
+        ):
+            return self._paddle_arm_lock
+
+        if self._frames_since_real_paddle >= self._paddle_lock_unlock_after:
+            self._paddle_arm_lock = None
+
+        vote = 0.0
+        if paddle_center_norm is not None:
+            arm = pick_arm_tuple()
+            vote = 1.0 if arm == R_ARM else -1.0
         elif self._prev_landmarks is not None:
             prev = self._prev_landmarks
             lv = math.hypot(

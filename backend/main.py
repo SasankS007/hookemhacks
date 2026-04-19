@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from routers import stroke, rally, footage
+from routers import stroke, rally
 
 app = FastAPI(title="PicklePro API", version="0.1.0")
 
@@ -14,9 +14,6 @@ app.add_middleware(
 
 app.include_router(stroke.router, prefix="/api/stroke", tags=["stroke"])
 app.include_router(rally.router, prefix="/api/rally", tags=["rally"])
-app.include_router(footage.router, prefix="/api/footage", tags=["footage"])
-
-
 @app.get("/api/health")
 async def health_check():
     return {"status": "ok", "service": "picklepro-api"}

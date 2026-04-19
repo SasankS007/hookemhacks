@@ -10,8 +10,8 @@ import numpy as np
 
 Box = Tuple[int, int, int, int]
 
-_CROSS_HALF = 10  # half-length of each crosshair arm (20px total)
-_DOT_RADIUS = 6
+_CROSS_HALF = 16  # half-length of each crosshair arm — larger “hit” target on camera
+_DOT_RADIUS = 10
 _LABEL = "SWEET SPOT"
 
 

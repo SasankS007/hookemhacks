@@ -481,6 +481,7 @@ class StrokeClassifier:
             "score": self._last_score,
             "return_probability": round(rp, 2),
             "metrics": {k: round(v, 2) for k, v in self._last_metrics.items()},
+            "wrist_dx": round(self._wrist_dx, 4),
         }
 
     def _emit_pre_calib(self) -> None:
@@ -496,6 +497,7 @@ class StrokeClassifier:
             "score": self._last_score,
             "return_probability": round(self._last_return_prob, 2),
             "metrics": {k: round(v, 2) for k, v in self._last_metrics.items()},
+            "wrist_dx": round(self._wrist_dx, 4),
         }
 
     @property

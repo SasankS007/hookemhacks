@@ -82,7 +82,7 @@ async def launch_stroke_cv():
         os.path.dirname(__file__), "..", "stroke_analysis", "server.py"
     )
     _cv_process = subprocess.Popen(
-        [sys.executable, server_script],
+        [sys.executable, "-u", server_script],
         cwd=os.path.join(os.path.dirname(__file__), "..", "stroke_analysis"),
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,

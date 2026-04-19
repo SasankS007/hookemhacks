@@ -14,7 +14,7 @@ class GameEngine:
     """Drop-in replacement for the old game_engine.GameEngine."""
 
     def __init__(self):
-        self._difficulty = "hard"
+        self._difficulty = "easy"
         self.state = GameState(difficulty=self._difficulty)
         self._renderer = GameRenderer()
 
@@ -29,9 +29,9 @@ class GameEngine:
 
     def update(self, stroke_state: str, *, net_event: bool = False,
                stroke_score: int = 0, weakest_metric: str = "",
-               stroke_phase: str = "READY"):
+               stroke_phase: str = "READY", wrist_dx: float = 0.0):
         self.state.stroke_score = stroke_score
-        self.state.update(stroke_state, net_event=net_event)
+        self.state.update(stroke_state, net_event=net_event, wrist_dx=wrist_dx)
         self.state.weakest_metric = weakest_metric
         self.state.stroke_phase = stroke_phase
 

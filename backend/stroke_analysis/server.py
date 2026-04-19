@@ -15,6 +15,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
 os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
@@ -155,13 +156,54 @@ def _draw_overlays(frame, landmarks, analyzer: SwingAnalyzer):
 
 # ── WebSocket streaming ────────────────────────────────────────────────
 
+def _resolve_pose_model() -> str:
+    here = Path(__file__).resolve().parent
+    candidates = [
+        here.parent / "ai_rally" / "models" / "pose_landmarker_lite.task",
+        here / "models" / "pose_landmarker_lite.task",
+    ]
+    for p in candidates:
+        if p.is_file():
+            return str(p)
+    return str(candidates[0])
+
+
+def _open_camera():
+    """Open default webcam with a backend that works on macOS (AVFoundation)."""
+    for attempt in range(12):
+        if sys.platform == "darwin":
+            cap = cv2.VideoCapture(0, cv2.CAP_AVFOUNDATION)
+        elif sys.platform == "win32":
+            cap = cv2.VideoCapture(0, cv2.CAP_DSHOW)
+        else:
+            cap = cv2.VideoCapture(0)
+        if not cap.isOpened():
+            cap.release()
+            time.sleep(0.2)
+            continue
+        cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
+        cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+        # Warm up: first frames are often black/empty on macOS
+        for _ in range(15):
+            ok, frame = cap.read()
+            if ok and frame is not None and frame.size > 0:
+                return cap
+            time.sleep(0.05)
+        cap.release()
+        time.sleep(0.25)
+    return None
+
+
 async def _stream(ws):
     loop = asyncio.get_event_loop()
 
-    # MediaPipe
-    model_path = os.path.join(os.path.dirname(__file__), "..", "ai_rally", "models", "pose_landmarker_lite.task")
+    model_path = _resolve_pose_model()
     if not os.path.isfile(model_path):
-        model_path = os.path.join(os.path.dirname(__file__), "models", "pose_landmarker_lite.task")
+        await ws.send(json.dumps({
+            "error": "Pose model missing. Start the app once with network so it can download pose_landmarker_lite.task."
+        }))
+        return
+
     pose = PoseLandmarker.create_from_options(PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_path),
         running_mode=RunningMode.VIDEO,
@@ -170,22 +212,16 @@ async def _stream(ws):
         min_tracking_confidence=0.5,
     ))
 
-    cap = cv2.VideoCapture(0)
-    cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
-    cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+    cap = _open_camera()
+    if cap is None:
+        await ws.send(json.dumps({
+            "error": "Camera not available. On Mac: System Settings → Privacy & Security → Camera — allow Terminal or your IDE, then retry."
+        }))
+        pose.close()
+        return
 
     analyzer = SwingAnalyzer()
     frame_ts = 0
-
-    # Camera check
-    ok, test = cap.read()
-    if not ok:
-        await ws.send(json.dumps({
-            "error": "Camera not available. Grant camera access in System Settings → Privacy & Security → Camera, then restart."
-        }))
-        cap.release()
-        pose.close()
-        return
 
     try:
         while True:

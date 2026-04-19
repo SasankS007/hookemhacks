@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { PageTransition } from "@/components/PageTransition";
 import {
   Wifi,
@@ -13,7 +12,15 @@ import {
   Loader2,
   Camera,
   Zap,
+  LogOut,
 } from "lucide-react";
+import { useAppStore } from "@/store/useAppStore";
+import {
+  announceGameOver,
+  announceScore,
+  playBallHit,
+  playUiClick,
+} from "@/lib/tamagotchiAudio";
 
 const WS_URL = "ws://localhost:8765";
 
@@ -22,8 +29,6 @@ type ConnState = "disconnected" | "connecting" | "connected" | "error";
 type Difficulty = "easy" | "medium" | "hard";
 
 interface GameState {
-  stroke: string | null;
-  velocity: number;
   playerScore: number;
   aiScore: number;
   gameOver: boolean;
@@ -34,20 +39,14 @@ interface GameState {
   error?: string;
 }
 
-const STROKE_COLORS: Record<string, string> = {
-  FOREHAND: "text-green-400 bg-green-400/10 border-green-400/30",
-  BACKHAND: "text-blue-400 bg-blue-400/10 border-blue-400/30",
-  READY: "text-white bg-white/5 border-white/20",
-  UNIDENTIFIABLE: "text-red-400 bg-red-400/10 border-red-400/30",
-};
-
 export default function AIRallyPage() {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const cameraCanvasRef = useRef<HTMLCanvasElement>(null);
+  const gameCanvasRef = useRef<HTMLCanvasElement>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const recordedGameRef = useRef(false);
+  const recordArenaMatch = useAppStore((s) => s.recordArenaMatch);
   const [conn, setConn] = useState<ConnState>("disconnected");
   const [gameState, setGameState] = useState<GameState>({
-    stroke: null,
-    velocity: 0,
     playerScore: 0,
     aiScore: 0,
     gameOver: false,
@@ -56,18 +55,32 @@ export default function AIRallyPage() {
     rally: 0,
   });
   const [launching, setLaunching] = useState(false);
-  const [difficulty, setDifficulty] = useState<Difficulty>("hard");
+  const [difficulty, setDifficulty] = useState<Difficulty>("easy");
+  const prevScoresRef = useRef<{ p: number; a: number } | null>(null);
+  const prevRallyRef = useRef<number | null>(null);
+  const gameOverAnnouncedRef = useRef(false);
 
   const drawFrame = useCallback(async (blob: Blob) => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+    const cam = cameraCanvasRef.current;
+    const game = gameCanvasRef.current;
+    if (!cam || !game) return;
+    const cctx = cam.getContext("2d");
+    const gctx = game.getContext("2d");
+    if (!cctx || !gctx) return;
 
     const bitmap = await createImageBitmap(blob);
-    canvas.width = bitmap.width;
-    canvas.height = bitmap.height;
-    ctx.drawImage(bitmap, 0, 0);
+    const w = bitmap.width;
+    const h = bitmap.height;
+    const half = Math.floor(w / 2);
+    const rw = w - half;
+
+    cam.width = half;
+    cam.height = h;
+    game.width = half;
+    game.height = h;
+
+    cctx.drawImage(bitmap, 0, 0, half, h, 0, 0, half, h);
+    gctx.drawImage(bitmap, half, 0, rw, h, 0, 0, half, h);
     bitmap.close();
   }, []);
 
@@ -81,22 +94,36 @@ export default function AIRallyPage() {
     const ws = new WebSocket(WS_URL);
     ws.binaryType = "blob";
 
-    ws.onopen = () => setConn("connected");
+    ws.onopen = () => {
+      setConn("connected");
+      ws.send(JSON.stringify({ action: "set_difficulty", level: difficulty }));
+    };
 
     ws.onmessage = (ev) => {
       if (ev.data instanceof Blob) {
-        drawFrame(ev.data);
+        void drawFrame(ev.data);
       } else {
         try {
-          const data = JSON.parse(ev.data);
+          const data = JSON.parse(ev.data) as Record<string, unknown>;
           if (data.error) {
-            setGameState((prev) => ({ ...prev, error: data.error }));
+            setGameState((prev) => ({
+              ...prev,
+              error: String(data.error),
+            }));
             setConn("error");
             ws.close();
             return;
           }
-          setGameState(data);
-          if (data.difficulty) setDifficulty(data.difficulty);
+          setGameState({
+            playerScore: Number(data.playerScore ?? 0),
+            aiScore: Number(data.aiScore ?? 0),
+            gameOver: Boolean(data.gameOver),
+            winner: (data.winner as string | null) ?? null,
+            hitWindow: Boolean(data.hitWindow),
+            rally: Number(data.rally ?? 0),
+            difficulty: data.difficulty as Difficulty | undefined,
+          });
+          if (data.difficulty) setDifficulty(data.difficulty as Difficulty);
         } catch {
           /* ignore malformed json */
         }
@@ -107,7 +134,72 @@ export default function AIRallyPage() {
     ws.onclose = () => setConn("disconnected");
 
     wsRef.current = ws;
-  }, [drawFrame]);
+  }, [drawFrame, difficulty]);
+
+  useEffect(() => {
+    if (!gameState.gameOver) {
+      recordedGameRef.current = false;
+      return;
+    }
+    if (recordedGameRef.current) return;
+    recordedGameRef.current = true;
+    const won = gameState.winner === "Player";
+    recordArenaMatch({
+      difficulty,
+      won,
+      playerScore: gameState.playerScore,
+      aiScore: gameState.aiScore,
+    });
+  }, [
+    gameState.gameOver,
+    gameState.winner,
+    gameState.playerScore,
+    gameState.aiScore,
+    difficulty,
+    recordArenaMatch,
+  ]);
+
+  useEffect(() => {
+    if (conn !== "connected") {
+      prevScoresRef.current = null;
+      prevRallyRef.current = null;
+    }
+  }, [conn]);
+
+  useEffect(() => {
+    if (conn !== "connected") return;
+    const cur = { p: gameState.playerScore, a: gameState.aiScore };
+    const prev = prevScoresRef.current;
+    prevScoresRef.current = cur;
+    if (!prev) return;
+    if (prev.p === cur.p && prev.a === cur.a) return;
+    if (cur.p === 0 && cur.a === 0) return;
+    void announceScore(cur.p, cur.a);
+  }, [gameState.playerScore, gameState.aiScore, conn]);
+
+  useEffect(() => {
+    if (conn !== "connected") return;
+    const r = gameState.rally;
+    const prev = prevRallyRef.current;
+    prevRallyRef.current = r;
+    if (prev !== null && r > prev) {
+      void playBallHit();
+    }
+  }, [gameState.rally, conn]);
+
+  useEffect(() => {
+    if (!gameState.gameOver) {
+      gameOverAnnouncedRef.current = false;
+      return;
+    }
+    if (gameOverAnnouncedRef.current) return;
+    gameOverAnnouncedRef.current = true;
+    const won = gameState.winner === "Player";
+    const t = window.setTimeout(() => {
+      void announceGameOver(won);
+    }, 2400);
+    return () => clearTimeout(t);
+  }, [gameState.gameOver, gameState.winner]);
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
@@ -119,23 +211,47 @@ export default function AIRallyPage() {
     wsRef.current?.send(JSON.stringify({ action: "reset" }));
   }, []);
 
-  const changeDifficulty = useCallback((level: Difficulty) => {
+  /** Leave the match: close link, clear UI so you can exit without another rally. */
+  const endArenaSession = useCallback(() => {
+    wsRef.current?.close();
+    wsRef.current = null;
+    setConn("disconnected");
+    setGameState({
+      playerScore: 0,
+      aiScore: 0,
+      gameOver: false,
+      winner: null,
+      hitWindow: false,
+      rally: 0,
+    });
+    recordedGameRef.current = false;
+    prevScoresRef.current = null;
+    prevRallyRef.current = null;
+    gameOverAnnouncedRef.current = false;
+  }, []);
+
+  /** Set difficulty anytime; notifies server only when the rally socket is open. */
+  const pickDifficulty = useCallback((level: Difficulty) => {
     setDifficulty(level);
-    wsRef.current?.send(JSON.stringify({ action: "set_difficulty", level }));
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ action: "set_difficulty", level }));
+    }
   }, []);
 
   const launchAndConnect = useCallback(async () => {
     setLaunching(true);
     try {
       await fetch("/api/rally/launch-cv", { method: "POST" });
-      // YOLO + MediaPipe + Pygame take ~10s to initialise on first run
       const maxAttempts = 8;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, 2000));
         try {
           const probe = new WebSocket(WS_URL);
           await new Promise<void>((resolve, reject) => {
-            probe.onopen = () => { probe.close(); resolve(); };
+            probe.onopen = () => {
+              probe.close();
+              resolve();
+            };
             probe.onerror = () => reject();
             setTimeout(() => reject(), 1500);
           });
@@ -162,90 +278,141 @@ export default function AIRallyPage() {
     }
   }, [disconnect]);
 
-  // Clean up on unmount
   useEffect(() => {
     return () => {
       wsRef.current?.close();
     };
   }, []);
 
-  const strokeClass =
-    STROKE_COLORS[gameState.stroke || "READY"] || STROKE_COLORS.READY;
+  const panelShell =
+    "relative overflow-hidden rounded-xl border-[2.5px] border-slate-800 bg-slate-900/5 shadow-[4px_4px_0_0_rgba(30,41,59,0.12)]";
+  const placeholderGrid = "grid grid-cols-1 gap-3 md:grid-cols-2";
 
   return (
     <PageTransition>
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mx-auto max-w-screen-2xl px-4 py-8 sm:px-6 lg:px-8">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold">AI Rally — CV Mode</h1>
-          <p className="text-muted-foreground mt-1">
-            Swing your paddle in front of the webcam to return the ball. First
-            to 11 wins.
+          <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">
+            ARENA
           </p>
+          <h1 className="mt-2 font-pixel text-[clamp(1.25rem,4vw,2rem)] leading-tight text-slate-800">
+            RALLY ARENA
+          </h1>
+          <p className="mt-2 font-vt323 text-[1.75rem] leading-tight text-[#4a5d3a]">
+            Webcam swing vs CPU — first to 11. Leave the court edge and you lose
+            the point. Rallies tuned for every difficulty.
+          </p>
+
+          <div className="mt-6 rounded-2xl border-[2.5px] border-slate-800 bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[4px_4px_0_0_rgba(30,41,59,0.12)] sm:px-6 sm:py-5">
+            <p className="font-pixel text-[8px] tracking-wide text-[#4a5d3a]">
+              CPU DIFFICULTY — CHOOSE BEFORE YOU START
+            </p>
+            <p className="mt-1 font-vt323 text-[1.15rem] leading-tight text-[#6b5c3e]">
+              You can change this anytime; it applies as soon as you connect.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2 sm:gap-3">
+              {(["easy", "medium", "hard"] as Difficulty[]).map((lvl) => (
+                <button
+                  key={lvl}
+                  type="button"
+                  onPointerDown={() => void playUiClick()}
+                  onClick={() => pickDifficulty(lvl)}
+                  className={`min-w-[5.5rem] flex-1 rounded-xl border-[2px] border-slate-800 px-4 py-3 font-pixel text-[9px] capitalize transition-colors sm:min-w-[6.5rem] ${
+                    difficulty === lvl
+                      ? "bg-green-300 text-slate-900 shadow-[3px_3px_0_0_#15803d]"
+                      : "bg-white/90 text-[#4a5d3a] hover:bg-amber-100"
+                  }`}
+                >
+                  {lvl}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-col lg:flex-row gap-6">
-          {/* Main video panel */}
-          <div className="flex-1">
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm overflow-hidden">
-              <CardContent className="p-0 relative">
-                {conn === "connected" ? (
+        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          {/* Main stage: camera | game */}
+          <div className="min-w-0 flex-1 flex flex-col gap-4">
+            {conn === "connected" ? (
+              <div className={`${placeholderGrid}`}>
+                <div className={panelShell}>
                   <canvas
-                    ref={canvasRef}
-                    className="w-full h-auto rounded-lg"
+                    ref={cameraCanvasRef}
+                    className="h-auto w-full max-h-[min(70vh,520px)] object-contain"
                   />
-                ) : (
-                  <div className="aspect-[1066/480] flex flex-col items-center justify-center bg-secondary/30 rounded-lg gap-4">
-                    {conn === "connecting" || launching ? (
-                      <>
-                        <Loader2 className="h-12 w-12 text-primary animate-spin" />
-                        <p className="text-muted-foreground text-sm">
-                          {launching
-                            ? "Starting CV server..."
-                            : "Connecting to WebSocket..."}
-                        </p>
-                      </>
-                    ) : conn === "error" ? (
-                      <>
-                        <WifiOff className="h-12 w-12 text-red-400" />
-                        <p className="text-red-400 text-sm font-medium">
-                          {gameState.error
-                            ? "Camera Error"
-                            : "Could not connect to the CV server"}
-                        </p>
-                        <p className="text-muted-foreground text-xs max-w-sm text-center">
-                          {gameState.error ||
-                            'Make sure the Python server is running, or click "Launch & Connect" to start it automatically.'}
-                        </p>
-                      </>
-                    ) : (
-                      <>
-                        <Camera className="h-16 w-16 text-muted-foreground/30" />
-                        <p className="text-muted-foreground text-sm">
-                          Connect to the CV server to start playing
-                        </p>
-                        <p className="text-muted-foreground/50 text-xs">
-                          Webcam + YOLOv8 + MediaPipe → real-time paddle game
-                        </p>
-                      </>
-                    )}
+                  <div className="pointer-events-none absolute left-2 top-2 rounded-lg border-[2px] border-slate-800 bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
+                    YOU (CAM)
                   </div>
-                )}
+                </div>
+                <div className={panelShell}>
+                  <canvas
+                    ref={gameCanvasRef}
+                    className="h-auto w-full max-h-[min(70vh,520px)] object-contain"
+                  />
+                  {gameState.hitWindow && (
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />
+                  )}
+                  <div className="pointer-events-none absolute left-2 top-2 rounded-lg border-[2px] border-slate-800 bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
+                    COURT
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className={`${placeholderGrid}`}>
+                <div
+                  className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-secondary/30 p-4`}
+                >
+                  {conn === "connecting" || launching ? (
+                    <>
+                      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+                      <p className="text-center font-vt323 text-[1.2rem] text-[#4a5d3a]">
+                        {launching
+                          ? "Starting CV server..."
+                          : "Connecting..."}
+                      </p>
+                    </>
+                  ) : conn === "error" ? (
+                    <>
+                      <WifiOff className="h-10 w-10 text-red-400" />
+                      <p className="font-pixel text-[9px] text-red-500">
+                        {gameState.error ? "CAMERA ERROR" : "NO CV SERVER"}
+                      </p>
+                      <p className="text-center font-vt323 text-[1.1rem] leading-tight text-[#4a5d3a]">
+                        {gameState.error ||
+                          'Run the backend or tap "Launch & Connect".'}
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <Camera className="h-12 w-12 text-[#8a7e6b]" />
+                      <p className="font-pixel text-[9px] text-[#4a5d3a]">
+                        CAMERA
+                      </p>
+                    </>
+                  )}
+                </div>
+                <div
+                  className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-slate-800/10 p-4`}
+                >
+                  <span className="font-pixel text-[8px] text-[#6b5c3e]">
+                    GAME VIEW
+                  </span>
+                  <p className="text-center font-vt323 text-[1.1rem] text-[#6b5c3e]">
+                    Connect to load the court stream.
+                  </p>
+                  <p className="font-pixel text-[7px] uppercase text-[#8a7e6b]">
+                    CPU: {difficulty}
+                  </p>
+                </div>
+              </div>
+            )}
 
-                {/* Hit window flash overlay */}
-                {conn === "connected" && gameState.hitWindow && (
-                  <div className="absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />
-                )}
-              </CardContent>
-            </Card>
-
-            {/* Connection controls */}
-            <div className="flex items-center gap-3 mt-4">
+            <div className="flex flex-wrap items-center gap-3">
               {conn === "disconnected" || conn === "error" ? (
                 <>
                   <Button
-                    onClick={launchAndConnect}
+                    onClick={() => void launchAndConnect()}
                     disabled={launching}
-                    className="font-semibold"
                   >
                     {launching ? (
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -254,7 +421,10 @@ export default function AIRallyPage() {
                     )}
                     Launch & Connect
                   </Button>
-                  <Button variant="outline" onClick={connect}>
+                  <Button
+                    variant="outline"
+                    onClick={connect}
+                  >
                     <Wifi className="mr-2 h-4 w-4" />
                     Connect Only
                   </Button>
@@ -262,8 +432,7 @@ export default function AIRallyPage() {
               ) : (
                 <Button
                   variant="destructive"
-                  onClick={stopServer}
-                  className="font-semibold"
+                  onClick={() => void stopServer()}
                 >
                   <WifiOff className="mr-2 h-4 w-4" />
                   Disconnect & Stop
@@ -272,85 +441,50 @@ export default function AIRallyPage() {
             </div>
           </div>
 
-          {/* Side panel */}
-          <div className="w-full lg:w-72 space-y-4">
-            {/* Score */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-5">
-                <p className="text-sm text-muted-foreground font-medium mb-3">
-                  Score
-                </p>
-                <div className="flex items-center justify-center gap-6 text-center">
+          {/* Stats rail */}
+          <aside className="w-full shrink-0 space-y-3 lg:w-[min(100%,320px)]">
+            <Card className="tama-card tama-card-green border-[2.5px] border-slate-800 bg-white/90">
+              <CardContent className="p-4">
+                <p className="mb-2 font-pixel text-[8px] text-[#6b5c3e]">SCORE</p>
+                <div className="flex items-center justify-center gap-5 text-center">
                   <div>
-                    <p className="text-3xl font-bold text-primary">
+                    <p className="font-vt323 text-[2.25rem] leading-none text-green-700">
                       {gameState.playerScore}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">You</p>
+                    <p className="mt-1 font-pixel text-[7px] text-[#6b5c3e]">YOU</p>
                   </div>
-                  <p className="text-2xl text-muted-foreground/50">—</p>
+                  <p className="font-vt323 text-[1.5rem] text-[#8a7e6b]">—</p>
                   <div>
-                    <p className="text-3xl font-bold text-red-400">
+                    <p className="font-vt323 text-[2.25rem] leading-none text-red-500">
                       {gameState.aiScore}
                     </p>
-                    <p className="text-xs text-muted-foreground mt-1">AI</p>
+                    <p className="mt-1 font-pixel text-[7px] text-[#6b5c3e]">CPU</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Stroke State */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-5">
-                <p className="text-sm text-muted-foreground font-medium mb-3">
-                  Stroke Detected
+            <Card className="tama-card border-[2.5px] border-slate-800 bg-white/90">
+              <CardContent className="p-4">
+                <p className="mb-1 font-pixel text-[8px] text-[#6b5c3e]">RALLY</p>
+                <p className="font-vt323 text-[2rem] leading-none text-slate-800">
+                  {gameState.rally}
                 </p>
-                <Badge
-                  variant="outline"
-                  className={`text-base px-4 py-1.5 font-semibold ${strokeClass}`}
-                >
-                  {gameState.stroke || "READY"}
-                </Badge>
               </CardContent>
             </Card>
 
-            {/* Velocity */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-5">
-                <p className="text-sm text-muted-foreground font-medium mb-3">
-                  Wrist Velocity
-                </p>
-                <div className="h-3 rounded-full bg-secondary overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-primary transition-all duration-100"
-                    style={{ width: `${(gameState.velocity || 0) * 100}%` }}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-
-            {/* Rally */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-5">
-                <p className="text-sm text-muted-foreground font-medium mb-1">
-                  Rally Length
-                </p>
-                <p className="text-2xl font-bold">{gameState.rally}</p>
-              </CardContent>
-            </Card>
-
-            {/* Connection status */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-5 flex items-center gap-3">
+            <Card className="tama-card border-[2.5px] border-slate-800 bg-white/90">
+              <CardContent className="flex items-center gap-3 p-4">
                 <span
                   className={`relative flex h-2.5 w-2.5 ${
                     conn === "connected" ? "" : "opacity-50"
                   }`}
                 >
                   {conn === "connected" && (
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75" />
+                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
                   )}
                   <span
-                    className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
+                    className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
                       conn === "connected"
                         ? "bg-green-500"
                         : conn === "error"
@@ -359,34 +493,37 @@ export default function AIRallyPage() {
                     }`}
                   />
                 </span>
-                <span className="text-sm text-muted-foreground capitalize">
+                <span className="font-pixel text-[8px] capitalize text-[#4a5d3a]">
                   {conn === "connected"
-                    ? "Live — streaming"
+                    ? "LIVE"
                     : conn === "connecting"
-                      ? "Connecting…"
+                      ? "LINKING…"
                       : conn === "error"
-                        ? "Connection failed"
-                        : "Disconnected"}
+                        ? "LINK FAIL"
+                        : "OFFLINE"}
                 </span>
               </CardContent>
             </Card>
 
-            {/* Difficulty */}
-            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-              <CardContent className="p-5">
-                <p className="text-sm text-muted-foreground font-medium mb-3">
-                  Difficulty
+            <Card className="tama-card border-[2.5px] border-slate-800 bg-white/90">
+              <CardContent className="p-4">
+                <p className="mb-1 font-pixel text-[8px] text-[#6b5c3e]">
+                  DIFFICULTY
+                </p>
+                <p className="mb-2 font-vt323 text-[1rem] leading-tight text-[#6b5c3e]">
+                  Same as header — adjust before or during a match.
                 </p>
                 <div className="flex gap-2">
                   {(["easy", "medium", "hard"] as Difficulty[]).map((lvl) => (
                     <button
                       key={lvl}
-                      onClick={() => changeDifficulty(lvl)}
-                      disabled={conn !== "connected"}
-                      className={`flex-1 py-1.5 rounded-md text-xs font-semibold capitalize transition-colors ${
+                      type="button"
+                      onPointerDown={() => void playUiClick()}
+                      onClick={() => pickDifficulty(lvl)}
+                      className={`flex-1 rounded-lg border-[2px] border-slate-800 py-2 font-pixel text-[8px] capitalize transition-colors ${
                         difficulty === lvl
-                          ? "bg-primary text-primary-foreground"
-                          : "bg-secondary/60 text-muted-foreground hover:bg-secondary"
+                          ? "bg-green-200 text-slate-800 shadow-[2px_2px_0_0_#15803d]"
+                          : "bg-amber-50 text-[#4a5d3a] hover:bg-amber-100"
                       } disabled:opacity-40`}
                     >
                       {lvl}
@@ -396,7 +533,6 @@ export default function AIRallyPage() {
               </CardContent>
             </Card>
 
-            {/* Reset / New Game */}
             <Button
               variant="outline"
               className="w-full"
@@ -406,24 +542,38 @@ export default function AIRallyPage() {
               <RotateCcw className="mr-2 h-4 w-4" />
               New Game
             </Button>
-          </div>
+          </aside>
         </div>
 
-        {/* Game Over Overlay */}
         {gameState.gameOver && conn === "connected" && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm">
-            <div className="text-center space-y-4">
-              <Trophy className="h-16 w-16 text-yellow-400 mx-auto" />
-              <p className="text-3xl font-bold">
-                {gameState.winner === "Player" ? "You Win!" : "AI Wins!"}
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-amber-50/85 backdrop-blur-sm">
+            <div className="tama-card tama-card-yellow max-w-md space-y-4 px-8 py-10 text-center">
+              <Trophy className="mx-auto h-16 w-16 text-yellow-600" />
+              <p className="font-pixel text-[clamp(1rem,4vw,1.35rem)] text-slate-800">
+                {gameState.winner === "Player" ? "YOU WIN!" : "CPU WINS!"}
               </p>
-              <p className="text-muted-foreground text-lg">
+              <p className="font-vt323 text-[2rem] text-[#2e4a1e]">
                 {gameState.playerScore} — {gameState.aiScore}
               </p>
-              <Button onClick={resetGame} size="lg" className="font-semibold">
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Play Again
-              </Button>
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-center">
+                <Button
+                  onClick={resetGame}
+                  size="lg"
+                  className="font-pixel text-[9px]"
+                >
+                  <RotateCcw className="mr-2 h-4 w-4" />
+                  PLAY AGAIN
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={endArenaSession}
+                  size="lg"
+                  className="border-[2px] border-slate-800 font-pixel text-[9px] bg-white hover:bg-amber-50"
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  END GAME
+                </Button>
+              </div>
             </div>
           </div>
         )}

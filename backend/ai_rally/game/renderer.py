@@ -8,7 +8,7 @@ import numpy as np
 
 from game.game_state import (
     GameState, COURT_W, COURT_H, MARGIN_X, MARGIN_TOP, MARGIN_BOT,
-    PADDLE_W, PADDLE_H, BALL_R,
+    PADDLE_W, PADDLE_H, BALL_R, POINT_PAUSE_FRAMES,
 )
 from game.court import (
     draw_background, draw_court_shadow, draw_court_surface, draw_net,
@@ -27,6 +27,10 @@ C_BALL_EDGE = (200, 255, 0)   # #C8FF00
 C_SHADOW_BALL = (15, 20, 30, 90)
 C_HIT_GLOW = (0, 255, 80)
 C_NET_TEXT = (255, 60, 60)
+
+C_PADDLE_FACE = (50, 200, 90)
+C_PADDLE_EDGE = (20, 100, 40)
+C_SCORE_PAUSE = (80, 220, 255)
 
 
 def _lerp(a, b, t):
@@ -48,6 +52,9 @@ class GameRenderer:
         self.font_small = pygame.font.SysFont("Arial", 12)
         self.font_big = pygame.font.SysFont("Arial", 28, bold=True)
         self.font_net = pygame.font.SysFont("Arial", 36, bold=True)
+        # Smoothed on-screen ball (sim position can step; this interpolates for video)
+        self._ball_vis: list[float] | None = None
+        self._ball_trail: list[tuple[float, float]] = []
 
     def render(self, gs: GameState) -> np.ndarray:
         s = self.surface
@@ -64,30 +71,39 @@ class GameRenderer:
         if gs.hit_window:
             self._draw_hit_window(s)
 
-        # 4. Ball shadow
-        self._draw_ball_shadow(s, gs)
+        # 4. Ball shadow + smoothed trail + ball
+        vx, vy = self._smooth_ball_pos(gs)
+        self._draw_ball_trail(s, gs)
+        self._draw_ball_shadow(s, gs, vx, vy)
 
         # 5. AI sprite (top of court)
         ai_cx = int(gs.ai_x + PADDLE_W / 2)
         ai_cy = TOP_LEFT[1] + 30
         draw_ai_sprite(s, ai_cx, ai_cy, swinging=gs.ai_swinging, scale=0.65)
+        self._draw_paddle_graphic(s, ai_cx, ai_cy + int(22 * 0.65), "up", gs.ai_swinging)
 
         # 6. Player sprite (bottom of court)
         player_cx = int(gs.player_x + PADDLE_W / 2)
         player_cy = BOT_LEFT[1] - 30
-        self._draw_player_sprite(s, player_cx, player_cy, gs.stroke_phase)
+        self._draw_player_sprite(
+            s, player_cx, player_cy, gs.stroke_phase, gs.player_swinging
+        )
+        self._draw_paddle_graphic(s, player_cx, player_cy + 18, "down", gs.player_swinging)
 
-        # 7. Ball with gradient
-        self._draw_ball(s, gs)
+        # 7. Ball with gradient (uses smoothed vx, vy)
+        self._draw_ball(s, gs, vx, vy)
 
         # 8. HUD
         self._draw_hud(s, gs)
 
-        # 9. NET / OUT flash
-        if gs.net_flash_frames > 0:
-            self._draw_net_flash(s, gs.net_flash_frames)
-        if gs.out_flash_frames > 0:
-            self._draw_out_flash(s, gs.out_flash_frames)
+        # 9. NET flash (skip during point pause — overlay handles NET)
+        if getattr(gs, "_point_pause_remaining", 0) <= 0:
+            if gs.net_flash_frames > 0:
+                self._draw_net_flash(s, gs.net_flash_frames)
+
+        # 9b. Point pause: first 1s reason, second 1s score
+        if getattr(gs, "_point_pause_remaining", 0) > 0:
+            self._draw_point_pause_overlay(s, gs)
 
         # 10. Game over
         if gs.game_over:
@@ -99,7 +115,12 @@ class GameRenderer:
     # ── Player sprite ───────────────────────────────────────────────────
 
     def _draw_player_sprite(
-        self, surf: pygame.Surface, cx: int, cy: int, phase: str
+        self,
+        surf: pygame.Surface,
+        cx: int,
+        cy: int,
+        phase: str,
+        swinging: bool = False,
     ):
         s = 0.85  # slightly larger than AI (perspective)
 
@@ -138,42 +159,119 @@ class GameRenderer:
         la_y = torso_y + 3
         pygame.draw.rect(surf, C_PLAYER_ARM, (la_x, la_y, arm_w, arm_len), border_radius=2)
 
-        # Right arm (animated by phase)
+        # Right arm (animated by phase; swing mirrors CONTACT)
+        eff_phase = "CONTACT" if swinging else phase
         ra_x = torso_x + torso_w + 1
         ra_y = torso_y + 3
-        if phase == "BACKSWING":
+        if eff_phase == "BACKSWING":
             # Arm raised
             ra_y -= int(10 * s)
             pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, arm_len + int(4 * s)), border_radius=2)
-        elif phase == "CONTACT":
+        elif eff_phase == "CONTACT":
             # Arm extended forward
             ra_y -= int(6 * s)
             ext_len = arm_len + int(8 * s)
             pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, ext_len), border_radius=2)
-        elif phase == "LOAD":
+        elif eff_phase == "LOAD":
             ra_y -= int(4 * s)
             pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, arm_len + int(2 * s)), border_radius=2)
         else:
             pygame.draw.rect(surf, C_PLAYER_ARM, (ra_x, ra_y, arm_w, arm_len), border_radius=2)
 
+
+    def _draw_paddle_graphic(
+        self,
+        surf: pygame.Surface,
+        cx: int,
+        cy: int,
+        facing: str,
+        swinging: bool,
+    ):
+        """Pickleball paddle beside the body; animates on swing."""
+        pw, ph = 28, 8
+        tilt = -18 if swinging else 0
+        if facing == "up":
+            tilt = 18 if swinging else 0
+        paddle = pygame.Surface((pw + 4, ph + 4), pygame.SRCALPHA)
+        pygame.draw.ellipse(paddle, C_PADDLE_EDGE, (2, 2, pw, ph))
+        pygame.draw.ellipse(paddle, C_PADDLE_FACE, (4, 3, pw - 4, ph - 4))
+        if tilt:
+            rotated = pygame.transform.rotate(paddle, tilt)
+            surf.blit(rotated, (cx - rotated.get_width() // 2, cy - rotated.get_height() // 2))
+        else:
+            surf.blit(paddle, (cx - pw // 2, cy - ph // 2))
+
+    def _draw_point_pause_overlay(self, surf: pygame.Surface, gs: GameState):
+        rem = gs._point_pause_remaining
+        half = POINT_PAUSE_FRAMES // 2
+        y = COURT_H // 2 - 20
+        if rem > half:
+            reason = getattr(gs, "pause_overlay_reason", None)
+            if reason == "NET":
+                alpha = min(255, int(255 * (rem - half) / half))
+                ovl = pygame.Surface((COURT_W, COURT_H), pygame.SRCALPHA)
+                txt = self.font_net.render("NET", True, (*C_NET_TEXT, alpha))
+                ovl.blit(txt, (COURT_W // 2 - txt.get_width() // 2, y))
+                surf.blit(ovl, (0, 0))
+        else:
+            alpha = min(255, int(255 * rem / half))
+            score_str = f"{gs.player_score} \u2014 {gs.ai_score}"
+            ovl = pygame.Surface((COURT_W, COURT_H), pygame.SRCALPHA)
+            txt = self.font_net.render(score_str, True, (*C_SCORE_PAUSE, alpha))
+            ovl.blit(txt, (COURT_W // 2 - txt.get_width() // 2, y))
+            surf.blit(ovl, (0, 0))
+
     # ── Ball ────────────────────────────────────────────────────────────
 
-    def _draw_ball_shadow(self, surf: pygame.Surface, gs: GameState):
+    def _smooth_ball_pos(self, gs: GameState) -> tuple[float, float]:
+        """Interpolate toward sim ball; snap on large jumps (serve / point reset)."""
+        if self._ball_vis is None:
+            self._ball_vis = [float(gs.bx), float(gs.by)]
+            self._ball_trail = []
+        else:
+            dx = gs.bx - self._ball_vis[0]
+            dy = gs.by - self._ball_vis[1]
+            if dx * dx + dy * dy > 160 * 160:
+                self._ball_vis[0] = float(gs.bx)
+                self._ball_vis[1] = float(gs.by)
+                self._ball_trail = []
+            else:
+                tau = 0.36
+                self._ball_vis[0] += dx * tau
+                self._ball_vis[1] += dy * tau
+        self._ball_trail.append((self._ball_vis[0], self._ball_vis[1]))
+        if len(self._ball_trail) > 16:
+            self._ball_trail.pop(0)
+        return self._ball_vis[0], self._ball_vis[1]
+
+    def _draw_ball_trail(self, surf: pygame.Surface, gs: GameState):
+        if len(self._ball_trail) < 2:
+            return
+        n = len(self._ball_trail)
+        for i, (tx, ty) in enumerate(self._ball_trail[:-1]):
+            age = (i + 1) / max(n, 1)
+            alpha = int(35 + 55 * age)
+            rr = max(2, int(_ball_perspective_radius(ty) * 0.35))
+            spot = pygame.Surface((rr * 2 + 2, rr * 2 + 2), pygame.SRCALPHA)
+            pygame.draw.circle(spot, (220, 255, 120, alpha), (rr + 1, rr + 1), rr)
+            surf.blit(spot, (int(tx) - rr - 1, int(ty) - rr - 1))
+
+    def _draw_ball_shadow(self, surf: pygame.Surface, gs: GameState, vx: float, vy: float):
         """Shadow on court surface below ball, scaled by y position."""
         r = _ball_perspective_radius(gs.by)
         shadow_r = max(2, int(r * 0.8))
         # Shadow offset scales with distance from bottom
         t = (gs.by - TOP_LEFT[1]) / (BOT_LEFT[1] - TOP_LEFT[1])
         t = max(0.0, min(1.0, t))
-        shadow_y = int(gs.by + 4 + (1 - t) * 6)
+        shadow_y = int(vy + 4 + (1 - t) * 6)
 
         shadow_surf = pygame.Surface((shadow_r * 2, shadow_r * 2), pygame.SRCALPHA)
         pygame.draw.ellipse(shadow_surf, C_SHADOW_BALL, (0, 0, shadow_r * 2, shadow_r))
-        surf.blit(shadow_surf, (int(gs.bx) - shadow_r, shadow_y - shadow_r // 2))
+        surf.blit(shadow_surf, (int(vx) - shadow_r, shadow_y - shadow_r // 2))
 
-    def _draw_ball(self, surf: pygame.Surface, gs: GameState):
+    def _draw_ball(self, surf: pygame.Surface, gs: GameState, vx: float, vy: float):
         r = _ball_perspective_radius(gs.by)
-        bx, by = int(gs.bx), int(gs.by)
+        bx, by = int(vx), int(vy)
 
         # Radial gradient: white centre → yellow-green edge
         ball_surf = pygame.Surface((r * 2 + 2, r * 2 + 2), pygame.SRCALPHA)
@@ -189,11 +287,11 @@ class GameRenderer:
     # ── Hit window ──────────────────────────────────────────────────────
 
     def _draw_hit_window(self, surf: pygame.Surface):
-        # Pulsing green bar at bottom of court
+        # Pulsing green bar at bottom of court (aligned with game_state hit_zone_y = 0.72)
         pulse = abs(math.sin(pygame.time.get_ticks() * 0.008)) * 0.5 + 0.5
         alpha = int(40 * pulse)
-        bar_h = int(COURT_H * 0.18)
-        bar_y = int(COURT_H * 0.82)
+        bar_y = int(COURT_H * 0.72)
+        bar_h = COURT_H - bar_y
         hw = pygame.Surface((COURT_W, bar_h), pygame.SRCALPHA)
         hw.fill((0, 255, 80, alpha))
         surf.blit(hw, (0, bar_y))
@@ -236,14 +334,6 @@ class GameRenderer:
             f"Rally {gs.rally}   [{diff_label}]", True, (140, 140, 140)
         )
         surf.blit(rally_txt, (COURT_W // 2 - rally_txt.get_width() // 2, 28))
-
-        # Stroke score + weakest metric (bottom-left during rally)
-        if gs.stroke_score > 0 and gs.rally > 0:
-            info = f"Score {gs.stroke_score}"
-            if gs.weakest_metric:
-                info += f"  |  Weakest: {gs.weakest_metric}"
-            info_txt = self.font_small.render(info, True, (180, 200, 255))
-            surf.blit(info_txt, (8, COURT_H - 18))
 
     # ── Game over ───────────────────────────────────────────────────────
 

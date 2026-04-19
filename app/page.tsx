@@ -1,267 +1,183 @@
 "use client";
 
+import type { ComponentType } from "react";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import {
   ArrowRight,
   Crosshair,
   Gamepad2,
-  Heart,
-  Sparkles,
-  Star,
-  Trophy,
-  Video,
-  Zap,
+  LayoutGrid,
 } from "lucide-react";
 import { PageTransition } from "@/components/PageTransition";
+import { TamaLogoIcon } from "@/components/TamaLogoIcon";
+import { playUiClick } from "@/lib/tamagotchiAudio";
 
-type PlayMode = {
+function GameboyFaceButton({
+  href,
+  icon: Icon,
+  title,
+  subtitle,
+  accent,
+}: {
   href: string;
-  label: string;
-  desc: string;
-  num: string;
-  icon: React.ComponentType<{ className?: string }>;
-  bg: string;
-  shadowCls: string;
-  chipCls: string;
-};
-
-const playModes: PlayMode[] = [
-  {
-    href: "/stroke-analysis",
-    label: "STROKE\nMODE",
-    desc: "Train your timing and form.",
-    num: "01",
-    icon: Crosshair,
-    bg: "bg-gradient-to-b from-green-500 to-green-600",
-    shadowCls:
-      "shadow-[6px_6px_0px_0px_#15803d] group-hover:shadow-[2px_2px_0px_0px_#15803d]",
-    chipCls: "bg-green-100 text-green-800 border-green-600",
-  },
-  {
-    href: "/ai-rally",
-    label: "VS CPU",
-    desc: "Volley with your pocket rival.",
-    num: "02",
-    icon: Gamepad2,
-    bg: "bg-gradient-to-b from-sky-400 to-sky-500",
-    shadowCls:
-      "shadow-[6px_6px_0px_0px_#0284c7] group-hover:shadow-[2px_2px_0px_0px_#0284c7]",
-    chipCls: "bg-sky-100 text-sky-800 border-sky-600",
-  },
-  {
-    href: "/footage",
-    label: "REPLAY\nMODE",
-    desc: "Scan clips and level up.",
-    num: "03",
-    icon: Video,
-    bg: "bg-gradient-to-b from-orange-400 to-orange-500",
-    shadowCls:
-      "shadow-[6px_6px_0px_0px_#ea580c] group-hover:shadow-[2px_2px_0px_0px_#ea580c]",
-    chipCls: "bg-orange-100 text-orange-800 border-orange-600",
-  },
-];
-
-const statChips = [
-  { label: "PLAYERS", value: "2.4K", icon: Heart, cls: "tama-card-green" },
-  { label: "SHOTS", value: "98K", icon: Zap, cls: "tama-card-blue" },
-  { label: "XP BOOST", value: "+24%", icon: Trophy, cls: "tama-card-orange" },
-];
-
-function PlayButton({ mode }: { mode: PlayMode }) {
+  icon: ComponentType<{ className?: string }>;
+  title: string;
+  subtitle: string;
+  accent: string;
+}) {
   return (
-    <Link href={mode.href} className="group block">
+    <Link
+      href={href}
+      onPointerDown={() => void playUiClick()}
+      className="group block w-full"
+    >
       <div
-        className={`overflow-hidden rounded-[20px] border-[2.5px] border-slate-800 transition-[box-shadow,transform] duration-100 group-hover:translate-x-[4px] group-hover:translate-y-[4px] ${mode.shadowCls}`}
+        className={`flex min-h-[4.5rem] w-full items-center gap-4 rounded-2xl border-[3px] border-slate-900 bg-[#c4cfa1] px-4 py-4 shadow-[6px_6px_0_#1e293b] transition-[transform,box-shadow] duration-100 active:translate-x-[3px] active:translate-y-[3px] active:shadow-[2px_2px_0_#1e293b] sm:min-h-[5.25rem] sm:px-5 sm:py-5 ${accent}`}
       >
-        <div className={`${mode.bg} flex flex-col items-center gap-4 px-6 pb-7 pt-8`}>
-          <span className="self-start font-pixel text-[7px] tracking-widest text-white/70">
-            MODE {mode.num}
-          </span>
-          <div className="flex h-24 w-24 items-center justify-center rounded-2xl border-2 border-white/40 bg-white/20">
-            <mode.icon className="h-11 w-11 text-white" />
-          </div>
-          <p className="whitespace-pre-line text-center font-pixel text-[11px] leading-loose text-white">
-            {mode.label}
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border-[2px] border-slate-900 bg-white/80 sm:h-16 sm:w-16">
+          <Icon className="h-8 w-8 text-[#306230] sm:h-9 sm:w-9" />
+        </div>
+        <div className="min-w-0 flex-1 text-left">
+          <p className="font-pixel text-[clamp(0.7rem,3.5vw,0.95rem)] leading-tight text-[#1e293b]">
+            {title}
+          </p>
+          <p className="mt-1 font-vt323 text-[clamp(1.15rem,4vw,1.45rem)] leading-tight text-[#306230]">
+            {subtitle}
           </p>
         </div>
-        <div className="flex items-center justify-between gap-3 bg-white px-5 py-3.5">
-          <p className="truncate text-sm text-slate-500">{mode.desc}</p>
-          <span
-            className={`shrink-0 rounded-lg border px-2.5 py-1.5 font-pixel text-[8px] ${mode.chipCls}`}
-          >
-            START ▶
-          </span>
-        </div>
+        <span className="shrink-0 rounded-lg border-[2px] border-slate-900 bg-[#ffd966] px-2 py-1 font-pixel text-[7px] text-[#1e293b]">
+          A
+        </span>
       </div>
     </Link>
-  );
-}
-
-function TamagotchiDevice() {
-  return (
-    <svg viewBox="0 0 260 340" className="h-auto w-full max-w-[260px]" fill="none" aria-hidden="true">
-      <path d="M119 16h22v22h-22z" fill="#1E293B" />
-      <circle cx="130" cy="16" r="12" fill="#FEF3C7" stroke="#1E293B" strokeWidth="4" />
-      <rect x="32" y="34" width="196" height="274" rx="44" fill="#FDE68A" stroke="#1E293B" strokeWidth="5" />
-      <rect x="58" y="66" width="144" height="120" rx="18" fill="#DCFCE7" stroke="#1E293B" strokeWidth="5" />
-      <rect x="72" y="80" width="116" height="12" rx="6" fill="#E2E8F0" stroke="#1E293B" strokeWidth="3" />
-      <rect x="75" y="83" width="78" height="6" rx="3" fill="#84CC16" />
-      <circle cx="100" cy="120" r="12" fill="#1E293B" />
-      <circle cx="160" cy="120" r="12" fill="#1E293B" />
-      <path d="M101 145c11 11 47 11 58 0" stroke="#15803D" strokeLinecap="round" strokeWidth="6" />
-      <path d="M98 106c7-12 18-18 32-18 14 0 25 6 32 18" stroke="#22C55E" strokeLinecap="round" strokeWidth="5" />
-      <path d="M87 204c18 16 68 16 86 0" stroke="#1E293B" strokeLinecap="round" strokeWidth="5" />
-      <circle cx="92" cy="238" r="18" fill="#22C55E" stroke="#1E293B" strokeWidth="4" />
-      <circle cx="130" cy="252" r="18" fill="#FB923C" stroke="#1E293B" strokeWidth="4" />
-      <circle cx="168" cy="238" r="18" fill="#38BDF8" stroke="#1E293B" strokeWidth="4" />
-      <circle cx="130" cy="260" r="5" fill="#1E293B" />
-      <circle cx="92" cy="238" r="5" fill="#1E293B" />
-      <circle cx="168" cy="238" r="5" fill="#1E293B" />
-      <rect x="74" y="205" width="112" height="8" rx="4" fill="#F8FAFC" stroke="#1E293B" strokeWidth="3" />
-      <circle cx="213" cy="92" r="12" fill="#FFF7ED" stroke="#1E293B" strokeWidth="4" />
-      <path d="M212 85l1 7 7 1-7 1-1 7-1-7-7-1 7-1 1-7z" fill="#FACC15" />
-    </svg>
   );
 }
 
 export default function LandingPage() {
   return (
     <PageTransition>
-      <div className="relative min-h-screen overflow-hidden">
-        <div className="star-bg fixed inset-0 -z-10" />
-        <div className="pointer-events-none fixed inset-x-0 top-16 -z-10 mx-auto h-[420px] w-[420px] rounded-full bg-lime-300/25 blur-3xl" />
-        <div className="pointer-events-none fixed bottom-0 left-1/2 -z-10 h-[340px] w-[600px] -translate-x-1/2 rounded-full bg-sky-200/20 blur-3xl" />
+      <div className="relative flex min-h-[100dvh] flex-col bg-[#2d3a2e] px-3 py-4 sm:px-6 sm:py-8">
+        <div className="star-bg pointer-events-none fixed inset-0 -z-10 opacity-40" />
 
-        <section className="mx-auto flex max-w-6xl flex-col items-center px-4 pb-24 pt-20 text-center sm:px-6 lg:px-8">
+        <div className="mx-auto flex w-full max-w-6xl flex-1 flex-col items-center justify-center gap-6 md:flex-row md:items-center md:justify-between md:gap-8 lg:gap-14 lg:pl-4 lg:pr-0">
+          {/* Left: SVG logo + STROKE SENSEI — centered & proportional */}
           <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.45 }}
-            className="w-full"
+            className="flex w-full flex-col items-center md:max-w-[24rem] md:flex-1"
           >
-            <div className="mx-auto mb-6 inline-flex items-center gap-2 rounded-full border-[2px] border-slate-800 bg-white px-4 py-2 shadow-[4px_4px_0px_0px_rgba(30,41,59,0.16)]">
-              <Sparkles className="h-4 w-4 text-green-700" />
-              <span className="font-pixel text-[9px] text-slate-700">
-                PICKLE PET TRAINER ONLINE
+            <TamaLogoIcon className="h-[clamp(10rem,22vw,16rem)] w-[clamp(10rem,22vw,16rem)] drop-shadow-[6px_6px_0_rgba(15,23,42,0.4)]" />
+
+            <h1 className="mt-5 text-center font-pixel text-[clamp(2rem,6vw,3.5rem)] leading-[1.1] tracking-tight text-[#fde047] drop-shadow-[4px_4px_0_rgba(15,23,42,0.5)]">
+              STROKE
+              <span className="block text-[#9bbc0f]">
+                SENSEI
               </span>
-            </div>
+            </h1>
+          </motion.div>
 
-            <div className="mx-auto max-w-4xl rounded-[32px] border-[2.5px] border-slate-800 bg-white/70 px-5 py-8 shadow-[0_12px_40px_rgba(163,230,53,0.16)] backdrop-blur-sm sm:px-10">
-              <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-yellow-500 bg-yellow-100 px-3 py-1.5">
-                <Star className="h-4 w-4 text-yellow-700" />
-                <span className="font-pixel text-[8px] text-yellow-900">
-                  BOOTING LESSON MODE
-                </span>
-              </div>
-
-              <h1 className="font-pixel text-[clamp(2rem,8vw,4.8rem)] leading-[1.15] text-slate-800">
-                STROKE
-                <span className="block sensei-shimmer">SENSEI</span>
-              </h1>
-
-              <p className="mx-auto mt-5 max-w-2xl text-balance font-vt323 text-[1.9rem] leading-[1.1] text-slate-600 sm:text-[2.2rem]">
-                Your retro pickleball coach for swing checks, CPU rallies, and replay scans.
-              </p>
-
-              <div className="mt-10 flex flex-col items-center gap-8">
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.96 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: 0.1, duration: 0.45 }}
-                  className="relative"
-                >
-                  <div className="absolute inset-0 scale-110 rounded-full bg-lime-300/25 blur-3xl" />
-                  <motion.div
-                    className="relative rounded-[36px] border-[2.5px] border-slate-800 bg-amber-100/80 px-6 py-8 shadow-[8px_8px_0px_0px_rgba(30,41,59,0.16)]"
-                    animate={{ y: [0, -14, 0], rotate: [-2, 2, -2] }}
-                    transition={{ duration: 5.2, repeat: Infinity, ease: "easeInOut" }}
-                  >
-                    <TamagotchiDevice />
-                  </motion.div>
-                </motion.div>
-
-                <div className="flex flex-col items-center gap-4 sm:flex-row">
-                  <Link
-                    href="/dashboard"
-                    className="rounded-2xl border-[2.5px] border-slate-800 bg-green-500 px-7 py-4 font-pixel text-[10px] text-white shadow-[6px_6px_0px_0px_#15803d] transition-[box-shadow,transform] duration-100 hover:translate-x-[4px] hover:translate-y-[4px] hover:shadow-[2px_2px_0px_0px_#15803d]"
-                  >
-                    PLAY NOW ▶
-                  </Link>
-                  <Link
-                    href="/stroke-analysis"
-                    className="rounded-2xl border-[2.5px] border-slate-800 bg-white px-7 py-4 font-pixel text-[10px] text-slate-700 shadow-[6px_6px_0px_0px_rgba(30,41,59,0.22)] transition-[box-shadow,transform] duration-100 hover:translate-x-[4px] hover:translate-y-[4px] hover:shadow-[2px_2px_0px_0px_rgba(30,41,59,0.24)]"
-                  >
-                    FREE DEMO
-                  </Link>
-                </div>
-
-                <div className="grid w-full max-w-3xl grid-cols-1 gap-4 sm:grid-cols-3">
-                  {statChips.map((chip) => (
-                    <div
-                      key={chip.label}
-                      className={`tama-card ${chip.cls} flex items-center gap-4 px-5 py-4 text-left`}
-                    >
-                      <div className="flex h-12 w-12 items-center justify-center rounded-2xl border-[2px] border-slate-800 bg-amber-50">
-                        <chip.icon className="h-5 w-5 text-slate-700" />
-                      </div>
-                      <div>
-                        <p className="font-pixel text-[8px] text-slate-500">{chip.label}</p>
-                        <p className="font-vt323 text-[2rem] leading-none text-slate-800">
-                          {chip.value}
-                        </p>
-                      </div>
-                    </div>
+          {/* Right: handheld shell */}
+          <div className="flex w-full max-w-[440px] shrink-0 justify-center md:ml-2 md:max-w-[min(100%,400px)] md:justify-end lg:ml-6 lg:translate-x-2 xl:translate-x-4">
+            <div className="flex w-full flex-col rounded-[2.25rem] border-[6px] border-slate-900 bg-[#fde047] p-3 shadow-[14px_14px_0_#1e293b] sm:rounded-[2.75rem] sm:p-4">
+              {/* Grille + power LED */}
+              <div className="mb-2 flex items-center justify-between px-1">
+                <div className="flex gap-1">
+                  {Array.from({ length: 6 }).map((_, i) => (
+                    <span
+                      key={i}
+                      className="h-1.5 w-1.5 rounded-full bg-slate-800/40"
+                      aria-hidden
+                    />
                   ))}
                 </div>
+                <div className="flex items-center gap-2">
+                  <span className="font-pixel text-[6px] uppercase text-[#306230]">
+                    ON
+                  </span>
+                  <span className="h-2.5 w-2.5 rounded-full bg-lime-400 shadow-[0_0_8px_#4ade80]" />
+                </div>
+              </div>
+
+              {/* LCD stack */}
+              <div className="relative flex min-h-0 flex-1 flex-col rounded-[1.35rem] border-[5px] border-slate-900 bg-[#9bbc0f] p-3 shadow-[inset_0_0_24px_rgba(15,23,42,0.2)] sm:rounded-[1.5rem] sm:p-4">
+                <div className="pointer-events-none absolute inset-2 rounded-xl bg-[linear-gradient(180deg,rgba(255,255,255,0.06),transparent_40%)]" />
+
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.35 }}
+                  className="relative z-10 flex flex-1 flex-col"
+                >
+                  <p className="mb-3 font-pixel text-[7px] uppercase tracking-[0.2em] text-[#306230]">
+                    Main menu
+                  </p>
+                  <p className="mb-4 font-vt323 text-[clamp(0.95rem,3.5vw,1.15rem)] leading-tight text-[#1e293b]">
+                    Tap a face button to boot a mode.
+                  </p>
+
+                  <div className="grid flex-1 grid-cols-1 gap-2.5 sm:gap-3">
+                    <GameboyFaceButton
+                      href="/stroke-analysis"
+                      icon={Crosshair}
+                      title="THE DOJO"
+                      subtitle="Form & Sensei reps"
+                      accent="hover:bg-[#b8c990]"
+                    />
+                    <GameboyFaceButton
+                      href="/ai-rally"
+                      icon={Gamepad2}
+                      title="RALLY ARENA"
+                      subtitle="CPU rally to eleven"
+                      accent="hover:bg-[#b8c990]"
+                    />
+                    <GameboyFaceButton
+                      href="/dashboard"
+                      icon={LayoutGrid}
+                      title="TRAINING HUB"
+                      subtitle="Trophies & saved reps"
+                      accent="hover:bg-[#b8c990]"
+                    />
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <Link
+                      href="/dashboard"
+                      onPointerDown={() => void playUiClick()}
+                      className="flex min-h-[3rem] items-center justify-center rounded-xl border-[3px] border-slate-900 bg-[#ffd966] px-3 font-pixel text-[8px] text-[#1e293b] shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b] sm:min-h-[3.25rem]"
+                    >
+                      START ▶
+                    </Link>
+                    <Link
+                      href="/stroke-analysis"
+                      onPointerDown={() => void playUiClick()}
+                      className="flex min-h-[3rem] items-center justify-center rounded-xl border-[3px] border-slate-900 bg-white px-3 font-pixel text-[8px] text-[#1e293b] shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b] sm:min-h-[3.25rem]"
+                    >
+                      DEMO
+                    </Link>
+                  </div>
+                </motion.div>
+              </div>
+
+              {/* D-pad hint row */}
+              <div className="mt-3 flex items-center justify-between px-2 pb-1">
+                <div className="flex gap-2">
+                  <span className="h-8 w-8 rounded border-2 border-slate-900 bg-slate-800/10" />
+                  <span className="h-8 w-14 rounded border-2 border-slate-900 bg-slate-800/10" />
+                </div>
+                <Link
+                  href="/dashboard"
+                  onPointerDown={() => void playUiClick()}
+                  className="inline-flex items-center gap-1.5 rounded-full border-2 border-slate-900 bg-white px-3 py-1.5 font-pixel text-[7px] text-[#1e293b] shadow-[3px_3px_0_#1e293b]"
+                >
+                  HUB
+                  <ArrowRight className="h-3 w-3" />
+                </Link>
               </div>
             </div>
-          </motion.div>
-        </section>
-
-        <section className="mx-auto max-w-6xl px-4 pb-28 sm:px-6 lg:px-8">
-          <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true, amount: 0.3 }}
-            transition={{ duration: 0.4 }}
-            className="mx-auto max-w-4xl text-center"
-          >
-            <p className="font-pixel text-[9px] tracking-[0.3em] text-slate-500">
-              SELECT MODE
-            </p>
-            <h2 className="mt-4 font-pixel text-[clamp(1.2rem,4vw,2rem)] leading-[1.5] text-slate-800">
-              CHOOSE YOUR GAME
-            </h2>
-            <p className="mx-auto mt-4 max-w-2xl font-vt323 text-[1.8rem] leading-[1.1] text-slate-600">
-              Pick a cartridge below and let Sensei load the right challenge.
-            </p>
-          </motion.div>
-
-          <div className="mx-auto mt-10 grid max-w-5xl grid-cols-1 gap-6 md:grid-cols-3">
-            {playModes.map((mode, index) => (
-              <motion.div
-                key={mode.href}
-                initial={{ opacity: 0, y: 22 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true, amount: 0.25 }}
-                transition={{ delay: index * 0.07, duration: 0.35 }}
-              >
-                <PlayButton mode={mode} />
-              </motion.div>
-            ))}
           </div>
-
-          <div className="mx-auto mt-10 flex max-w-3xl justify-center">
-            <Link
-              href="/dashboard"
-              className="inline-flex items-center gap-2 rounded-2xl border-[2.5px] border-slate-800 bg-white px-5 py-3 font-pixel text-[9px] text-slate-700 shadow-[5px_5px_0px_0px_rgba(30,41,59,0.22)] transition-[box-shadow,transform] duration-100 hover:translate-x-[3px] hover:translate-y-[3px] hover:shadow-[2px_2px_0px_0px_rgba(30,41,59,0.24)]"
-            >
-              OPEN TRAINING HUB
-              <ArrowRight className="h-4 w-4" />
-            </Link>
-          </div>
-        </section>
+        </div>
       </div>
     </PageTransition>
   );
