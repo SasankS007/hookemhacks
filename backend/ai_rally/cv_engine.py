@@ -137,9 +137,6 @@ class CVEngine:
     # ── public API ────────────────────────────────────────────────────────
 
     def process_frame(self):
-        # Drain any stale buffered frames — always decode the most recent one
-        self._cap.grab()
-        self._cap.grab()
         ok, frame = self._cap.read()
         if not ok:
             return None, None, None
