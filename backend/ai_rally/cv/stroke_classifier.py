@@ -274,6 +274,9 @@ class StrokeClassifier:
         self._score_contact(lm, sample, fl)
         self._contact_scored = True
         self._contact_snapshot = self._build_frame_output(Phase.CONTACT)
+        # Emit game state immediately at contact so the game registers the hit
+        # without waiting for follow-through deceleration.
+        self._emit_stroke()
         self.phase = Phase.FOLLOW_THROUGH
         self._follow_decel_count = 0
         self._follow_prev_vw = sample.v_wrist
@@ -341,13 +344,8 @@ class StrokeClassifier:
                 self._follow_decel_count = 0
             self._follow_prev_vw = vw
 
-            if self._follow_decel_count >= _FOLLOW_DECEL_FRAMES and not self._emitted:
-                self._emit_stroke()
-            elif vw < 0.03:
-                if self._contact_scored and not self._emitted:
-                    self._emit_stroke()
-                else:
-                    self._reset_swing()
+            if self._follow_decel_count >= _FOLLOW_DECEL_FRAMES or vw < 0.03:
+                self._reset_swing()
 
     def _emit_stroke(self) -> None:
         """Emit the stroke once. Net/out is determined by ball physics, not random."""

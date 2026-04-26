@@ -284,8 +284,8 @@ class GameState:
             else:
                 self.last_hit_by = "player"
                 self.rally += 1
-                # Ball speed scales with swing power: soft swing = 55%, full swing = 100%
-                swing_power = 0.55 + 0.45 * max(0.0, min(1.0, wrist_speed))
+                # Ball speed scales with swing power: soft swing = 85%, full swing = 115%
+                swing_power = 0.85 + 0.30 * max(0.0, min(1.0, wrist_speed))
                 self.ball_speed = min(
                     (BALL_SPEED_INIT + BALL_SPEED_INC * self.rally) * swing_power,
                     BALL_SPEED_CAP,
