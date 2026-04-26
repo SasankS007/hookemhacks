@@ -31,7 +31,7 @@ export default function SignupPage() {
     setLoading(true);
     const supabase = createClient();
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
+    const { error: signUpError } = await supabase.auth.signUp({
       email,
       password,
       options: { data: { username: username.trim() } },
@@ -41,18 +41,6 @@ export default function SignupPage() {
       setError(signUpError.message);
       setLoading(false);
       return;
-    }
-
-    // Insert profile row with username
-    if (data.user) {
-      const { error: profileError } = await supabase
-        .from("profiles")
-        .insert({ id: data.user.id, username: username.trim() });
-      if (profileError && !profileError.message.includes("duplicate")) {
-        setError(profileError.message);
-        setLoading(false);
-        return;
-      }
     }
 
     router.push("/dashboard");
