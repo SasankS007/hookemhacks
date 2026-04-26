@@ -4,6 +4,7 @@ Off-screen Pygame 2D pickleball court and game logic.
 Renders to a pygame.Surface and exposes the result as a NumPy array
 so the WebSocket server can encode it alongside the webcam frame.
 """
+from __future__ import annotations
 
 import os
 import random

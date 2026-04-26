@@ -1,7 +1,10 @@
+from __future__ import annotations
+
 import os
 import sys
 import subprocess
 from pathlib import Path
+from typing import Dict, List, Optional
 import urllib.request
 
 from fastapi import APIRouter
@@ -25,19 +28,19 @@ _POSE_MODEL_URL = (
 
 
 class StrokeAnalyzeRequest(BaseModel):
-    stroke_type: str | None = Field(default=None, alias="strokeType")
-    handedness: str | None = None
-    handedness_guess: str | None = Field(default=None, alias="handednessGuess")
-    phase: str | None = None
-    shot_confidence: float | None = Field(default=None, alias="shotConfidence")
-    live_metrics: dict[str, float] | None = Field(default=None, alias="liveMetrics")
-    last_shot_metrics: dict[str, float] | None = Field(default=None, alias="lastShotMetrics")
-    kinetic_chain: dict | None = Field(default=None, alias="kineticChain")
-    body_proportions: dict | None = Field(default=None, alias="bodyProportions")
-    coaching_tips: list[dict] | None = Field(default=None, alias="coachingTips")
-    shot_history: list[dict] | None = Field(default=None, alias="shotHistory")
-    pose: dict | None = None
-    video: str | None = None
+    stroke_type: Optional[str] = Field(default=None, alias="strokeType")
+    handedness: Optional[str] = None
+    handedness_guess: Optional[str] = Field(default=None, alias="handednessGuess")
+    phase: Optional[str] = None
+    shot_confidence: Optional[float] = Field(default=None, alias="shotConfidence")
+    live_metrics: Optional[Dict[str, float]] = Field(default=None, alias="liveMetrics")
+    last_shot_metrics: Optional[Dict[str, float]] = Field(default=None, alias="lastShotMetrics")
+    kinetic_chain: Optional[dict] = Field(default=None, alias="kineticChain")
+    body_proportions: Optional[dict] = Field(default=None, alias="bodyProportions")
+    coaching_tips: Optional[List[dict]] = Field(default=None, alias="coachingTips")
+    shot_history: Optional[List[dict]] = Field(default=None, alias="shotHistory")
+    pose: Optional[dict] = None
+    video: Optional[str] = None
 
     model_config = {"populate_by_name": True}
 

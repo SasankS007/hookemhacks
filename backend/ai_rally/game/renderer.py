@@ -1,6 +1,7 @@
 """
 Compose all game layers: background, court, net, sprites, ball, HUD.
 """
+from __future__ import annotations
 
 import math
 import pygame

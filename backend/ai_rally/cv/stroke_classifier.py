@@ -193,9 +193,13 @@ class StrokeClassifier:
         if len(self._buf) >= 1 and self._buf[-1] is not None:
             ps = self._buf[-1]
             assert ps is not None
-            vs = math.hypot(s[0] - ps.shoulder[0], s[1] - ps.shoulder[1]) / fl
-            ve = math.hypot(e[0] - ps.elbow[0], e[1] - ps.elbow[1]) / fl
-            vw = math.hypot(w[0] - ps.wrist[0], w[1] - ps.wrist[1]) / fl
+            # Body (shoulder) displacement this frame — filters out walking/swaying
+            sdx = s[0] - ps.shoulder[0]
+            sdy = s[1] - ps.shoulder[1]
+            vs = math.hypot(sdx, sdy) / fl
+            # Body-relative velocities: subtract shoulder motion so only arm swing registers
+            ve = math.hypot((e[0] - ps.elbow[0]) - sdx, (e[1] - ps.elbow[1]) - sdy) / fl
+            vw = math.hypot((w[0] - ps.wrist[0]) - sdx, (w[1] - ps.wrist[1]) - sdy) / fl
         else:
             vs = ve = vw = 0.0
 
@@ -346,11 +350,10 @@ class StrokeClassifier:
                     self._reset_swing()
 
     def _emit_stroke(self) -> None:
-        """Emit the stroke once, roll return probability, reset."""
+        """Emit the stroke once. Net/out is determined by ball physics, not random."""
         if self._last_score >= _MIN_SCORE and self._last_stroke in ("FOREHAND", "BACKHAND"):
             self._last_return_prob = _return_probability(self._last_score)
-            roll = random.random()
-            self._last_net_event = roll > self._last_return_prob
+            self._last_net_event = False  # physics-based only — no random net faults
             self.state = self._last_stroke
         else:
             self._last_return_prob = 0.0
@@ -482,6 +485,7 @@ class StrokeClassifier:
             "return_probability": round(rp, 2),
             "metrics": {k: round(v, 2) for k, v in self._last_metrics.items()},
             "wrist_dx": round(self._wrist_dx, 4),
+            "wrist_speed": round(self.wrist_speed, 3),
         }
 
     def _emit_pre_calib(self) -> None:
@@ -498,6 +502,7 @@ class StrokeClassifier:
             "return_probability": round(self._last_return_prob, 2),
             "metrics": {k: round(v, 2) for k, v in self._last_metrics.items()},
             "wrist_dx": round(self._wrist_dx, 4),
+            "wrist_speed": round(self.wrist_speed, 3),
         }
 
     @property

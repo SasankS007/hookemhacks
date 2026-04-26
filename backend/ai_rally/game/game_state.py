@@ -9,6 +9,7 @@ is right of the player icon; backhand when left.
 Ball direction after a player hit follows the real swing direction
 (wrist_dx from the CV classifier).
 """
+from __future__ import annotations
 
 import math
 import random
@@ -219,8 +220,8 @@ class GameState:
             if self._player_swing_frames <= 0:
                 self.player_swinging = False
 
-    def update(self, stroke_state: str, *, net_event: bool = False,
-               wrist_dx: float = 0.0):
+    def update(self, stroke_state: str, *, wrist_dx: float = 0.0,
+               wrist_speed: float = 0.5):
         if self.game_over:
             return
 
@@ -280,17 +281,22 @@ class GameState:
             expected = self._expected_shot()
             if expected is not None and stroke_state != expected:
                 pass  # wrong side — ball continues
-            elif net_event:
-                self.net_flash_frames = NET_FLASH_DURATION
-                self._score_point("ai", reason="NET")
             else:
                 self.last_hit_by = "player"
                 self.rally += 1
+                # Ball speed scales with swing power: soft swing = 55%, full swing = 100%
+                swing_power = 0.55 + 0.45 * max(0.0, min(1.0, wrist_speed))
                 self.ball_speed = min(
-                    BALL_SPEED_INIT + BALL_SPEED_INC * self.rally, BALL_SPEED_CAP
+                    (BALL_SPEED_INIT + BALL_SPEED_INC * self.rally) * swing_power,
+                    BALL_SPEED_CAP,
                 )
                 self.bdy = -self.ball_speed
-                self.bdx = self._swing_to_bdx(wrist_dx)
+                # Ball direction directly from wrist movement; fall back to stroke type
+                if abs(wrist_dx) > 0.01:
+                    self.bdx = self._swing_to_bdx(wrist_dx)
+                else:
+                    # No clear wrist direction from CV — use stroke type heuristic
+                    self.bdx = 1.5 if stroke_state == "FOREHAND" else -1.5
                 self._clamp_bdx()
                 self.by = hit_zone_y - 4
                 self.hit_window = False

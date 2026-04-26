@@ -15,6 +15,7 @@ CV processing pipeline — runs paddle detection + MediaPipe Pose on every frame
   prints the HSV value of the frame centre once per second.
 * All frames resized to 640x480 before inference.
 """
+from __future__ import annotations
 
 import math
 import os
@@ -131,10 +132,14 @@ class CVEngine:
         self._cap = cv2.VideoCapture(0)
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, FRAME_W)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, FRAME_H)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize internal buffer lag
 
     # ── public API ────────────────────────────────────────────────────────
 
     def process_frame(self):
+        # Drain any stale buffered frames — always decode the most recent one
+        self._cap.grab()
+        self._cap.grab()
         ok, frame = self._cap.read()
         if not ok:
             return None, None, None

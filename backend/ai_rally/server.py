@@ -6,6 +6,7 @@ interleaved JSON game-state messages to connected browser clients.
 
 Start:  python server.py
 """
+from __future__ import annotations
 
 import asyncio
 import json
@@ -29,8 +30,8 @@ WS_HOST = "0.0.0.0"
 WS_PORT = 8765
 TARGET_FPS = 30
 
-# Match CVEngine webcam frame (640×480) so camera + court panes are equal in the JPEG
-PANEL_W, PANEL_H = 640, 480
+# Smaller panels reduce JPEG size and encoding time → lower latency
+PANEL_W, PANEL_H = 480, 360
 
 
 async def _stream(ws, game: GameEngine):
@@ -59,16 +60,15 @@ async def _stream(ws, game: GameEngine):
             stroke = stroke or "READY"
 
             clf = cv_engine.classifier
-            net_event = clf.last_net_event if stroke in ("FOREHAND", "BACKHAND") else False
             fo = clf.frame_output
 
             game.update(
                 stroke,
-                net_event=net_event,
                 stroke_score=fo.get("score", 0),
                 weakest_metric=min(fo.get("metrics", {"": 0}), key=lambda k: fo["metrics"].get(k, 1), default="") if fo.get("metrics") else "",
                 stroke_phase=fo.get("phase", "READY"),
                 wrist_dx=fo.get("wrist_dx", 0.0),
+                wrist_speed=fo.get("wrist_speed", 0.5),
             )
 
             if stroke in ("FOREHAND", "BACKHAND") and clf._emitted:
@@ -77,12 +77,7 @@ async def _stream(ws, game: GameEngine):
             court_rgb = await loop.run_in_executor(None, game.render)
             court_bgr = cv2.cvtColor(court_rgb, cv2.COLOR_RGB2BGR)
 
-            court_panel = cv2.resize(court_bgr, (PANEL_W, PANEL_H))
-            combined = np.hstack([frame, court_panel])
-
-            _, buf = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, 80])
-            await ws.send(buf.tobytes())
-
+            # Send game state JSON first — small payload, updates game immediately
             await ws.send(
                 json.dumps({
                     "stroke": stroke,
@@ -99,6 +94,13 @@ async def _stream(ws, game: GameEngine):
                     "difficulty": game.difficulty,
                 })
             )
+
+            # Send camera + court JPEG after — larger payload, cosmetic only
+            cam_panel  = cv2.resize(frame, (PANEL_W, PANEL_H))
+            court_panel = cv2.resize(court_bgr, (PANEL_W, PANEL_H))
+            combined = np.hstack([cam_panel, court_panel])
+            _, buf = cv2.imencode(".jpg", combined, [cv2.IMWRITE_JPEG_QUALITY, 65])
+            await ws.send(buf.tobytes())
 
             elapsed = time.monotonic() - t0
             await asyncio.sleep(max(0, 1 / TARGET_FPS - elapsed))
