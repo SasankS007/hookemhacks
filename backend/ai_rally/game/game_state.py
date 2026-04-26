@@ -21,9 +21,9 @@ COURT_H = 480
 BALL_R = 6
 WIN_SCORE = 11
 
-BALL_SPEED_INIT = 5.6
-BALL_SPEED_INC = 0.03   # smaller increment so speed stays consistent across long rallies
-BALL_SPEED_CAP = 7.8    # lower cap prevents ball from becoming unplayable
+BALL_SPEED_INIT = 7.0
+BALL_SPEED_INC = 0.04
+BALL_SPEED_CAP = 10.0
 
 # AI miss probability (Hard baseline)
 AI_MISS_BASE = 0.15
@@ -245,9 +245,15 @@ class GameState:
         self.bx += self.bdx
         self.by += self.bdy
 
-        # ── Sideline OOB check (no wall bounces) ────────────────────────
+        # ── Sideline OOB — only judge when ball is in the hitter's half ──
+        # A ball that clips the edge near the player's end after a good hit
+        # should not be called out; only fault once it's clearly in the
+        # opponent's zone (top half when player hit, bottom half when AI hit).
         lx, rx = _court_x_bounds(self.by)
-        if self.bx < lx or self.bx > rx:
+        in_players_half = self.by > COURT_H / 2
+        fault_zone = (self.last_hit_by == "player" and not in_players_half) or \
+                     (self.last_hit_by == "ai"     and in_players_half)
+        if fault_zone and (self.bx < lx or self.bx > rx):
             fault_on = self.last_hit_by
             self._score_point("player" if fault_on == "ai" else "ai", reason=None)
             return

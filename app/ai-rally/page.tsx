@@ -290,7 +290,7 @@ export default function AIRallyPage() {
 
   return (
     <PageTransition>
-      <div className="relative mx-auto max-w-screen-2xl overflow-hidden px-4 py-8 sm:px-6 lg:px-8">
+      <div className="relative mx-auto max-w-screen-2xl overflow-hidden px-2 py-4 sm:px-4 lg:px-6">
         <div className="net-bg fixed inset-0 -z-[1]" aria-hidden />
         <div className="mb-6">
           <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">
@@ -339,7 +339,7 @@ export default function AIRallyPage() {
                 <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={cameraCanvasRef}
-                    className="h-auto w-full max-h-[min(70vh,520px)] object-contain"
+                    className="h-auto w-full max-h-[min(82vh,680px)] object-contain"
                   />
                   <div className="pointer-events-none absolute left-2 top-2 pixel-border bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
                     YOU (CAM)
@@ -348,7 +348,7 @@ export default function AIRallyPage() {
                 <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={gameCanvasRef}
-                    className="h-auto w-full max-h-[min(70vh,520px)] object-contain"
+                    className="h-auto w-full max-h-[min(82vh,680px)] object-contain"
                   />
                   {gameState.hitWindow && (
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />

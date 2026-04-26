@@ -1,10 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { cn } from "@/lib/utils";
-import { Crosshair, Gamepad2, LayoutDashboard, LogOut, User } from "lucide-react";
+import { Crosshair, Gamepad2, LayoutDashboard, User } from "lucide-react";
 import { TamaLogoIcon } from "@/components/TamaLogoIcon";
 import { createClient } from "@/lib/supabase";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
@@ -17,7 +17,6 @@ const navLinks = [
 
 export function Navbar() {
   const pathname = usePathname();
-  const router = useRouter();
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [username, setUsername] = useState<string | null>(null);
 
@@ -43,13 +42,6 @@ export function Navbar() {
     });
     return () => subscription.unsubscribe();
   }, []);
-
-  async function handleLogout() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/auth/login");
-    router.refresh();
-  }
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b-[2.5px] border-slate-800 bg-amber-50/95 shadow-[0_4px_0_0_rgba(30,41,59,0.16)] backdrop-blur-md">
@@ -86,19 +78,13 @@ export function Navbar() {
         {/* Auth section */}
         <div className="flex items-center gap-2">
           {user ? (
-            <>
-              <div className="hidden sm:flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-green-100 px-3 py-1.5 shadow-[2px_2px_0_#15803d]">
-                <User className="h-3.5 w-3.5 text-[#306230]" />
-                <span className="font-pixel text-[8px] text-[#306230]">{username}</span>
-              </div>
-              <button
-                onClick={handleLogout}
-                className="flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-white px-3 py-1.5 font-pixel text-[8px] text-slate-700 shadow-[3px_3px_0_rgba(30,41,59,0.2)] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_rgba(30,41,59,0.2)]"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-                <span className="hidden sm:inline">LOG OUT</span>
-              </button>
-            </>
+            <Link
+              href="/profile"
+              className="flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-green-100 px-3 py-1.5 shadow-[2px_2px_0_#15803d] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#15803d]"
+            >
+              <User className="h-3.5 w-3.5 text-[#306230]" />
+              <span className="font-pixel text-[8px] text-[#306230]">{username}</span>
+            </Link>
           ) : (
             <Link
               href="/auth/login"
