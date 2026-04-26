@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { motion } from "framer-motion";
 import { PageTransition } from "@/components/PageTransition";
 import {
@@ -327,10 +327,10 @@ export default function StrokeAnalysisPage() {
   const calibrated = state?.calibrated ?? false;
   const phase = state?.phase ?? "ready";
   const shotType = state?.shotType ?? "none";
-  const liveMetrics = state?.liveMetrics ?? {};
+  const liveMetrics = useMemo(() => state?.liveMetrics ?? {}, [state?.liveMetrics]);
   const lastMetrics = state?.lastShotMetrics;
   const chain = state?.kineticChain;
-  const history = state?.shotHistory ?? [];
+  const history = useMemo(() => state?.shotHistory ?? [], [state?.shotHistory]);
   const latestShotTimestamp =
     history.length > 0 ? history[history.length - 1]?.timestamp ?? 0 : 0;
 

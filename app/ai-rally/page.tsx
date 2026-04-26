@@ -300,8 +300,8 @@ export default function AIRallyPage() {
             RALLY ARENA
           </h1>
           <p className="mt-2 font-vt323 text-[1.75rem] leading-tight text-[#4a5d3a]">
-            Webcam swing vs CPU — first to 11. Leave the court edge and you lose
-            the point. Rallies tuned for every difficulty.
+            Webcam swing vs CPU — first to 11. Miss a return and concede the
+            point. Rallies tuned for every difficulty.
           </p>
 
           <div className="mt-6 pixel-border bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[5px_5px_0_0_#ca8a04] sm:px-6 sm:py-5">
@@ -331,15 +331,39 @@ export default function AIRallyPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+        {/* Connect / reset buttons — above the canvases */}
+        <div className="mb-3 flex flex-wrap items-center gap-2">
+          {conn === "disconnected" || conn === "error" ? (
+            <>
+              <Button onClick={() => void launchAndConnect()} disabled={launching}>
+                {launching ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Zap className="mr-2 h-4 w-4" />}
+                Launch & Connect
+              </Button>
+              <Button variant="outline" onClick={connect}>
+                <Wifi className="mr-2 h-4 w-4" />Connect Only
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button variant="destructive" onClick={() => void stopServer()}>
+                <WifiOff className="mr-2 h-4 w-4" />Disconnect & Stop
+              </Button>
+              <Button variant="outline" onClick={resetGame} disabled={conn !== "connected"}>
+                <RotateCcw className="mr-2 h-4 w-4" />New Game
+              </Button>
+            </>
+          )}
+        </div>
+
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start">
           {/* Main stage: camera | game */}
-          <div className="min-w-0 flex-1 flex flex-col gap-4">
+          <div className="min-w-0 flex-1">
             {conn === "connected" ? (
               <div className={`${placeholderGrid}`}>
                 <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={cameraCanvasRef}
-                    className="h-auto w-full max-h-[min(82vh,680px)] object-contain"
+                    className="h-auto w-full max-h-[min(86vh,760px)] object-contain"
                   />
                   <div className="pointer-events-none absolute left-2 top-2 pixel-border bg-white/90 px-2 py-1 font-pixel text-[7px] text-[#2e4a1e]">
                     YOU (CAM)
@@ -348,7 +372,7 @@ export default function AIRallyPage() {
                 <div className={panelShell} style={{ backgroundColor: "#2d3a2e" }}>
                   <canvas
                     ref={gameCanvasRef}
-                    className="h-auto w-full max-h-[min(82vh,680px)] object-contain"
+                    className="h-auto w-full max-h-[min(86vh,760px)] object-contain"
                   />
                   {gameState.hitWindow && (
                     <div className="pointer-events-none absolute inset-x-0 bottom-0 h-2 bg-yellow-400/60 animate-pulse" />
@@ -360,172 +384,88 @@ export default function AIRallyPage() {
               </div>
             ) : (
               <div className={`${placeholderGrid}`}>
-                <div
-                  className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-secondary/30 p-4`}
-                >
+                <div className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-3 bg-secondary/30 p-4`}>
                   {conn === "connecting" || launching ? (
                     <>
                       <Loader2 className="h-10 w-10 animate-spin text-primary" />
                       <p className="text-center font-vt323 text-[1.2rem] text-[#4a5d3a]">
-                        {launching
-                          ? "Starting CV server..."
-                          : "Connecting..."}
+                        {launching ? "Starting CV server..." : "Connecting..."}
                       </p>
                     </>
                   ) : conn === "error" ? (
                     <>
                       <WifiOff className="h-10 w-10 text-red-400" />
-                      <p className="font-pixel text-[9px] text-red-500">
-                        {gameState.error ? "CAMERA ERROR" : "NO CV SERVER"}
-                      </p>
+                      <p className="font-pixel text-[9px] text-red-500">{gameState.error ? "CAMERA ERROR" : "NO CV SERVER"}</p>
                       <p className="text-center font-vt323 text-[1.1rem] leading-tight text-[#4a5d3a]">
-                        {gameState.error ||
-                          'Run the backend or tap "Launch & Connect".'}
+                        {gameState.error || 'Run the backend or tap "Launch & Connect".'}
                       </p>
                     </>
                   ) : (
                     <>
                       <Camera className="h-12 w-12 text-[#8a7e6b]" />
-                      <p className="font-pixel text-[9px] text-[#4a5d3a]">
-                        CAMERA
-                      </p>
+                      <p className="font-pixel text-[9px] text-[#4a5d3a]">CAMERA</p>
                     </>
                   )}
                 </div>
-                <div
-                  className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-slate-800/10 p-4`}
-                >
-                  <span className="font-pixel text-[8px] text-[#6b5c3e]">
-                    GAME VIEW
-                  </span>
-                  <p className="text-center font-vt323 text-[1.1rem] text-[#6b5c3e]">
-                    Connect to load the court stream.
-                  </p>
-                  <p className="font-pixel text-[7px] uppercase text-[#8a7e6b]">
-                    CPU: {difficulty}
-                  </p>
+                <div className={`${panelShell} flex aspect-[4/3] flex-col items-center justify-center gap-2 bg-slate-800/10 p-4`}>
+                  <span className="font-pixel text-[8px] text-[#6b5c3e]">GAME VIEW</span>
+                  <p className="text-center font-vt323 text-[1.1rem] text-[#6b5c3e]">Connect to load the court stream.</p>
+                  <p className="font-pixel text-[7px] uppercase text-[#8a7e6b]">CPU: {difficulty}</p>
                 </div>
               </div>
             )}
-
-            <div className="flex flex-wrap items-center gap-3">
-              {conn === "disconnected" || conn === "error" ? (
-                <>
-                  <Button
-                    onClick={() => void launchAndConnect()}
-                    disabled={launching}
-                  >
-                    {launching ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Zap className="mr-2 h-4 w-4" />
-                    )}
-                    Launch & Connect
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={connect}
-                  >
-                    <Wifi className="mr-2 h-4 w-4" />
-                    Connect Only
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="destructive"
-                  onClick={() => void stopServer()}
-                >
-                  <WifiOff className="mr-2 h-4 w-4" />
-                  Disconnect & Stop
-                </Button>
-              )}
-            </div>
           </div>
 
-          {/* Stats rail */}
-          <aside className="w-full shrink-0 space-y-3 lg:w-[min(100%,320px)]">
-            <Card className="tama-card tama-card-green pixel-border bg-white/90">
-              <CardContent className="p-4">
-                <p className="mb-2 font-pixel text-[8px] text-[#6b5c3e]">SCORE</p>
-                <div className="flex items-center justify-center gap-5 text-center">
-                  <div>
-                    <p className="font-vt323 text-[2.25rem] leading-none text-green-700">
-                      {gameState.playerScore}
-                    </p>
-                    <p className="mt-1 font-pixel text-[7px] text-[#6b5c3e]">YOU</p>
+          {/* Slim stats rail */}
+          <aside className="w-full shrink-0 space-y-2 lg:w-44">
+            {/* Score */}
+            <Card className="pixel-border bg-white/90">
+              <CardContent className="p-3">
+                <p className="mb-1 font-pixel text-[7px] text-[#6b5c3e]">SCORE</p>
+                <div className="flex items-center justify-center gap-3">
+                  <div className="text-center">
+                    <p className="font-vt323 text-[2rem] leading-none text-green-700">{gameState.playerScore}</p>
+                    <p className="font-pixel text-[6px] text-[#6b5c3e]">YOU</p>
                   </div>
-                  <p className="font-vt323 text-[1.5rem] text-[#8a7e6b]">—</p>
-                  <div>
-                    <p className="font-vt323 text-[2.25rem] leading-none text-red-500">
-                      {gameState.aiScore}
-                    </p>
-                    <p className="mt-1 font-pixel text-[7px] text-[#6b5c3e]">CPU</p>
+                  <p className="font-vt323 text-xl text-[#8a7e6b]">—</p>
+                  <div className="text-center">
+                    <p className="font-vt323 text-[2rem] leading-none text-red-500">{gameState.aiScore}</p>
+                    <p className="font-pixel text-[6px] text-[#6b5c3e]">CPU</p>
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            <Card className="tama-card tama-card-blue pixel-border bg-white/90">
-              <CardContent className="p-4">
-                <p className="mb-1 font-pixel text-[8px] text-[#6b5c3e]">RALLY</p>
-                <p className="font-vt323 text-[2rem] leading-none text-slate-800">
-                  {gameState.rally}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="tama-card tama-card-orange pixel-border bg-white/90">
-              <CardContent className="flex items-center gap-3 p-4">
-                <span
-                  className={`relative flex h-2.5 w-2.5 ${
-                    conn === "connected" ? "" : "opacity-50"
-                  }`}
-                >
-                  {conn === "connected" && (
-                    <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />
-                  )}
-                  <span
-                    className={`relative inline-flex h-2.5 w-2.5 rounded-full ${
-                      conn === "connected"
-                        ? "bg-green-500"
-                        : conn === "error"
-                          ? "bg-red-500"
-                          : "bg-gray-500"
-                    }`}
-                  />
-                </span>
-                <span className="font-pixel text-[8px] capitalize text-[#4a5d3a]">
-                  {conn === "connected"
-                    ? "LIVE"
-                    : conn === "connecting"
-                      ? "LINKING…"
-                      : conn === "error"
-                        ? "LINK FAIL"
-                        : "OFFLINE"}
+            {/* Rally + status */}
+            <Card className="pixel-border bg-white/90">
+              <CardContent className="p-3 flex items-center justify-between">
+                <div>
+                  <p className="font-pixel text-[6px] text-[#6b5c3e]">RALLY</p>
+                  <p className="font-vt323 text-[1.6rem] leading-none text-slate-800">{gameState.rally}</p>
+                </div>
+                <span className={`relative flex h-2.5 w-2.5`}>
+                  {conn === "connected" && <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-400 opacity-75" />}
+                  <span className={`relative inline-flex h-2.5 w-2.5 rounded-full ${conn === "connected" ? "bg-green-500" : conn === "error" ? "bg-red-500" : "bg-gray-400"}`} />
                 </span>
               </CardContent>
             </Card>
 
-            <Card className="tama-card tama-card-pink pixel-border bg-white/90">
-              <CardContent className="p-4">
-                <p className="mb-1 font-pixel text-[8px] text-[#6b5c3e]">
-                  DIFFICULTY
-                </p>
-                <p className="mb-2 font-vt323 text-[1rem] leading-tight text-[#6b5c3e]">
-                  Same as header — adjust before or during a match.
-                </p>
-                <div className="flex gap-2">
+            {/* Difficulty */}
+            <Card className="pixel-border bg-white/90">
+              <CardContent className="p-3">
+                <p className="mb-1.5 font-pixel text-[6px] text-[#6b5c3e]">CPU</p>
+                <div className="flex flex-col gap-1">
                   {(["easy", "medium", "hard"] as Difficulty[]).map((lvl) => (
                     <button
                       key={lvl}
                       type="button"
                       onPointerDown={() => void playUiClick()}
                       onClick={() => pickDifficulty(lvl)}
-                      className={`flex-1 pixel-border py-2 font-pixel text-[8px] capitalize transition-colors ${
+                      className={`w-full pixel-border py-1 font-pixel text-[7px] capitalize transition-colors ${
                         difficulty === lvl
                           ? "bg-green-200 text-slate-800 shadow-[2px_2px_0_0_#15803d]"
                           : "bg-amber-50 text-[#4a5d3a] hover:bg-amber-100"
-                      } disabled:opacity-40`}
+                      }`}
                     >
                       {lvl}
                     </button>
@@ -533,16 +473,6 @@ export default function AIRallyPage() {
                 </div>
               </CardContent>
             </Card>
-
-            <Button
-              variant="outline"
-              className="w-full"
-              onClick={resetGame}
-              disabled={conn !== "connected"}
-            >
-              <RotateCcw className="mr-2 h-4 w-4" />
-              New Game
-            </Button>
           </aside>
         </div>
 

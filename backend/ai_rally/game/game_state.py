@@ -1,10 +1,9 @@
 """
 Pure game state — no rendering.  Ball physics, scoring, NET events,
-difficulty modes, sideline OOB, and shot-side enforcement.
+difficulty modes, and shot-side enforcement.
 
-Ball stays within the perspective court trapezoid.  If it crosses a
-sideline the last hitter is faulted.  Forehand is required when the ball
-is right of the player icon; backhand when left.
+Points are awarded on baseline misses and net faults.  Forehand is
+required when the ball is right of the player icon; backhand when left.
 
 Ball direction after a player hit follows the real swing direction
 (wrist_dx from the CV classifier).
@@ -140,7 +139,8 @@ class GameState:
         self._ai_volley_committed = False
         self._player_swing_fired_this_pass = False
         self._prev_by_before_update = self.by
-        self._ai_weak_return = False   # True when AI hit a soft shot → wider hit zone
+        self._ai_weak_return = False
+        self._prev_stroke_state = "READY"  # tracks stroke transitions to avoid stale returns
 
         self._serve(toward_player=True)
 
@@ -245,18 +245,8 @@ class GameState:
         self.bx += self.bdx
         self.by += self.bdy
 
-        # ── Sideline OOB — only judge when ball is in the hitter's half ──
-        # A ball that clips the edge near the player's end after a good hit
-        # should not be called out; only fault once it's clearly in the
-        # opponent's zone (top half when player hit, bottom half when AI hit).
-        lx, rx = _court_x_bounds(self.by)
-        in_players_half = self.by > COURT_H / 2
-        fault_zone = (self.last_hit_by == "player" and not in_players_half) or \
-                     (self.last_hit_by == "ai"     and in_players_half)
-        if fault_zone and (self.bx < lx or self.bx > rx):
-            fault_on = self.last_hit_by
-            self._score_point("player" if fault_on == "ai" else "ai", reason=None)
-            return
+        # Sideline OOB removed — visual court bounds don't match physics tightly
+        # enough to call fair out calls. Points only scored at baselines.
 
         # Human tracks horizontally toward the ball (ball moving toward player)
         if self.bdy > 0:
@@ -283,7 +273,16 @@ class GameState:
             self._player_swing_frames = SWING_FRAMES
             self._player_swing_fired_this_pass = True
 
-        if self.hit_window and stroke_state in ("FOREHAND", "BACKHAND"):
+        # Only register a hit when the stroke JUST fired this approach
+        # (transitioned from READY → FOREHAND/BACKHAND during the hit window).
+        # This prevents a stale emitted stroke from auto-returning the next ball.
+        stroke_just_fired = (
+            stroke_state in ("FOREHAND", "BACKHAND")
+            and self._prev_stroke_state == "READY"
+        )
+        self._prev_stroke_state = stroke_state
+
+        if self.hit_window and stroke_just_fired:
             expected = self._expected_shot()
             if expected is not None and stroke_state != expected:
                 pass  # wrong side — ball continues
