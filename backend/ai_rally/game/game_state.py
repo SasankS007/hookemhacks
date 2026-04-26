@@ -241,9 +241,12 @@ class GameState:
             self.net_flash_frames -= 1
         self._tick_swings_in_pause()
 
-        # Ball motion
-        self.bx += self.bdx
-        self.by += self.bdy
+        # Ball motion — perspective scaling: ball covers fewer pixels near the
+        # top (far end of court) to simulate real depth.
+        t = max(0.0, min(1.0, (self.by - MARGIN_TOP) / max(COURT_H - MARGIN_TOP, 1)))
+        persp = 0.55 + 0.9 * t          # 0.55× at AI end, 1.45× near player
+        self.bx += self.bdx * persp
+        self.by += self.bdy * persp
 
         # ── Sideline OOB check (no wall bounces) ────────────────────────
         lx, rx = _court_x_bounds(self.by)
@@ -330,7 +333,16 @@ class GameState:
                     if random.random() > miss_p:
                         self.last_hit_by = "ai"
                         self.bdy = self.ball_speed
-                        self.bdx = random.uniform(-1.15, 1.15)
+                        # AI reacts to incoming angle: 65% cross-court, 35% down-the-line
+                        in_sign = 1.0 if self.bdx >= 0 else -1.0
+                        if random.random() < 0.65:
+                            ai_bdx = -in_sign * random.uniform(0.6, 1.3)  # cross-court
+                        else:
+                            ai_bdx = in_sign * random.uniform(0.3, 0.9)   # down-the-line
+                        # Hard AI aims for tighter corners
+                        if self.difficulty == "hard":
+                            ai_bdx *= random.uniform(1.05, 1.25)
+                        self.bdx = ai_bdx
                         self._clamp_bdx()
                         self.by = ai_paddle_y + PADDLE_H + BALL_R + 2
                     else:
@@ -346,7 +358,8 @@ class GameState:
                             # Weak return — stays in court, keeps rallies going
                             self.last_hit_by = "ai"
                             self.bdy = self.ball_speed * 0.52
-                            self.bdx = random.uniform(-1.05, 1.05)
+                            in_sign = 1.0 if self.bdx >= 0 else -1.0
+                            self.bdx = -in_sign * random.uniform(0.4, 0.9)
                             self._clamp_bdx()
                             self.by = ai_paddle_y + PADDLE_H + BALL_R + 2
 

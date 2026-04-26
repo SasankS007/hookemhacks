@@ -220,7 +220,8 @@ class StrokeClassifier:
             assert p0 is not None
             self._prev_wrist_vel = (w[0] - p0.wrist[0], w[1] - p0.wrist[1])
 
-        self.wrist_speed = min(1.0, vw / 0.35)
+        # Normalize: typical fast swing peak ~0.28, gentle swing ~0.10
+        self.wrist_speed = min(1.0, vw / 0.28)
 
         self._advance_phase(landmarks, sample, fl)
         if self.phase != Phase.READY:
