@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Crosshair, Gamepad2, LayoutDashboard, User } from "lucide-react";
 import { TamaLogoIcon } from "@/components/TamaLogoIcon";
 import { createClient } from "@/lib/supabase";
+import { useAppStore } from "@/store/useAppStore";
 import type { User as SupabaseUser } from "@supabase/supabase-js";
 
 const navLinks = [
@@ -19,29 +20,36 @@ export function Navbar() {
   const pathname = usePathname();
   const [user, setUser] = useState<SupabaseUser | null>(null);
   const [username, setUsername] = useState<string | null>(null);
+  const syncFromSupabaseForUser = useAppStore((s) => s.syncFromSupabaseForUser);
+  const clearHub = useAppStore((s) => s.clearHub);
 
   useEffect(() => {
     const supabase = createClient();
-    supabase.auth.getUser().then(({ data }) => {
+    supabase.auth.getUser().then(async ({ data }) => {
       setUser(data.user ?? null);
       if (data.user) {
         setUsername(
           (data.user.user_metadata?.username as string) ?? data.user.email?.split("@")[0] ?? null
         );
+        await syncFromSupabaseForUser(data.user.id);
+      } else {
+        clearHub();
       }
     });
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) {
         setUsername(
           (session.user.user_metadata?.username as string) ?? session.user.email?.split("@")[0] ?? null
         );
+        await syncFromSupabaseForUser(session.user.id);
       } else {
         setUsername(null);
+        clearHub();
       }
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [clearHub, syncFromSupabaseForUser]);
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 border-b-[2.5px] border-slate-800 bg-amber-50/95 shadow-[0_4px_0_0_rgba(30,41,59,0.16)] backdrop-blur-md">

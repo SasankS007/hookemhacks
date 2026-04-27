@@ -58,6 +58,7 @@ interface AppState {
     playerScore: number;
     aiScore: number;
   }) => void;
+  syncFromSupabaseForUser: (userId: string) => Promise<void>;
   clearHub: () => void;
 }
 
@@ -69,6 +70,13 @@ const emptyArenaStats = (): Record<ArenaDifficulty, ArenaDifficultyStats> => ({
 
 const formatDate = () =>
   new Date().toLocaleDateString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+
+const formatDateFromIso = (iso: string) =>
+  new Date(iso).toLocaleDateString(undefined, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -178,6 +186,82 @@ export const useAppStore = create<AppState>()(
             ai_score: aiScore,
             trophy_earned: trophyEarned,
           }).then(() => {});
+        });
+      },
+
+      syncFromSupabaseForUser: async (userId) => {
+        const [dojoRes, arenaRes] = await Promise.all([
+          supabase
+            .from("dojo_saves")
+            .select("id, date, stroke_label, score, phase, note")
+            .eq("user_id", userId)
+            .order("date", { ascending: false })
+            .limit(40),
+          supabase
+            .from("arena_matches")
+            .select("id, date, difficulty, won, player_score, ai_score, trophy_earned")
+            .eq("user_id", userId)
+            .order("date", { ascending: false })
+            .limit(40),
+        ]);
+
+        const dojoRows = dojoRes.data ?? [];
+        const arenaRows = arenaRes.data ?? [];
+
+        const dojoSaves: DojoStrokeSave[] = dojoRows.map((row) => ({
+          id: row.id,
+          date: formatDateFromIso(row.date),
+          strokeLabel: row.stroke_label,
+          score: row.score,
+          phase: row.phase ?? undefined,
+          note: row.note ?? undefined,
+        }));
+
+        const arenaMatches: ArenaMatchSave[] = arenaRows.map((row) => ({
+          id: row.id,
+          date: formatDateFromIso(row.date),
+          difficulty: row.difficulty as ArenaDifficulty,
+          won: row.won,
+          playerScore: row.player_score,
+          aiScore: row.ai_score,
+          trophyEarned: row.trophy_earned ?? false,
+        }));
+
+        const arenaStats = emptyArenaStats();
+        for (const match of arenaMatches) {
+          const current = arenaStats[match.difficulty];
+          arenaStats[match.difficulty] = {
+            wins: current.wins + (match.won ? 1 : 0),
+            losses: current.losses + (match.won ? 0 : 1),
+          };
+        }
+
+        const sessionHistory: SessionEntry[] = [
+          ...dojoRows.map((row) => ({
+            id: row.id,
+            mode: "stroke-analysis" as AppMode,
+            isoDate: row.date,
+            date: formatDateFromIso(row.date),
+            summary: `Dojo — ${row.stroke_label} · score ${Math.round(row.score)}`,
+          })),
+          ...arenaRows.map((row) => ({
+            id: row.id,
+            mode: "ai-rally" as AppMode,
+            isoDate: row.date,
+            date: formatDateFromIso(row.date),
+            summary: `Rally Arena (${row.difficulty}) — ${row.won ? "Won" : "Lost"} ${row.player_score}-${row.ai_score}${row.trophy_earned ? " · +1 trophy" : ""}`,
+          })),
+        ]
+          .sort((a, b) => Date.parse(b.isoDate) - Date.parse(a.isoDate))
+          .slice(0, 50)
+          .map(({ isoDate: _isoDate, ...entry }) => entry);
+
+        set({
+          dojoSaves,
+          arenaMatches,
+          arenaStats,
+          trophyCount: arenaMatches.filter((m) => m.trophyEarned).length,
+          sessionHistory,
         });
       },
     }),
