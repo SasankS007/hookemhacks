@@ -8,6 +8,7 @@ import { BrowserGameState, COURT_W, COURT_H } from "@/lib/arena/browserGameState
 import type { ArenaDifficulty, GameSnapshot } from "@/lib/arena/browserGameState";
 import { renderCourt } from "@/lib/arena/courtRenderer";
 import type { SwingDetector } from "@/lib/arena/swingDetector";
+import type { ArmPreference } from "@/lib/arena/swingDetector";
 import {
   announceGameOver,
   announceScore,
@@ -65,6 +66,7 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
   const [serveResult, setServeResult] = useState<{ text: string; color: string } | null>(null);
   const [serveFrozen, setServeFrozen] = useState(false);
   const [cursorDisplay, setCursorDisplay] = useState(0);
+  const [armPreference, setArmPreference] = useState<ArmPreference>("auto");
   const cursorRef = useRef(0);
   const serveMeterAnimRef = useRef<number | null>(null);
   const serveTriggeredRef = useRef(false);
@@ -99,6 +101,10 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
     })();
     return () => { cancelled = true; detectorRef.current?.release(); };
   }, []);
+
+  useEffect(() => {
+    detectorRef.current?.setTrackedArm(armPreference);
+  }, [armPreference]);
 
   // ── Webcam ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -180,6 +186,27 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
         camCtx.scale(-1, 1);
         camCtx.drawImage(vid, -cw, 0, cw, ch);
         camCtx.restore();
+
+        if (detector?.wristVisibility && detector.wristVisibility > 0.2) {
+          const dotX = (1 - detector.wristX) * cw;
+          const dotY = detector.wristY * ch;
+          camCtx.fillStyle = "rgba(34,197,94,0.95)";
+          camCtx.strokeStyle = "#0f172a";
+          camCtx.lineWidth = 2;
+          camCtx.beginPath();
+          camCtx.arc(dotX, dotY, 7, 0, Math.PI * 2);
+          camCtx.fill();
+          camCtx.stroke();
+
+          camCtx.strokeStyle = "rgba(34,197,94,0.8)";
+          camCtx.lineWidth = 1.5;
+          camCtx.beginPath();
+          camCtx.moveTo(dotX - 11, dotY);
+          camCtx.lineTo(dotX + 11, dotY);
+          camCtx.moveTo(dotX, dotY - 11);
+          camCtx.lineTo(dotX, dotY + 11);
+          camCtx.stroke();
+        }
       }
     };
 
@@ -348,6 +375,15 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
           <div className="pointer-events-none absolute left-2 top-2 rounded border-[2px] border-slate-700 bg-black/70 px-2 py-0.5 font-pixel text-[7px] text-white">
             YOU (CAM)
           </div>
+          <div className="pointer-events-none absolute right-2 top-2 rounded border-[2px] border-slate-700 bg-black/75 px-2 py-1 text-right">
+            <p className="font-pixel text-[6px] text-emerald-300">ARM {armPreference.toUpperCase()}</p>
+            <p className="font-pixel text-[6px] text-white/90">
+              V {Math.round((detectorRef.current?.wristSpeed ?? 0) * 1000)}
+            </p>
+            <p className="font-pixel text-[6px] text-white/80">
+              {detectorRef.current?.wristVisibility && detectorRef.current.wristVisibility > 0.2 ? "TRACKING" : "SEARCHING"}
+            </p>
+          </div>
           {/* Swing indicator */}
           {detectorRef.current?.strokeState !== "READY" && (
             <div className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-lg border-[2px] border-slate-900 bg-[#9bbc0f] px-3 py-1 font-pixel text-[8px] text-[#306230]">
@@ -419,13 +455,27 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
       </div>
 
       {/* Action buttons */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button variant="outline" onClick={resetGame} className="font-pixel text-[8px]">
           <RotateCcw className="mr-2 h-4 w-4" />New Game
         </Button>
         <Button variant="outline" onClick={onExit} className="font-pixel text-[8px]">
           <LogOut className="mr-2 h-4 w-4" />Exit Browser Mode
         </Button>
+        {(["auto", "right", "left"] as ArmPreference[]).map((mode) => (
+          <button
+            key={mode}
+            type="button"
+            onClick={() => { setArmPreference(mode); void playUiClick(); }}
+            className={`rounded-lg border-[2px] px-3 py-2 font-pixel text-[7px] shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[1px] active:translate-y-[1px] active:shadow-[1px_1px_0_#1e293b] ${
+              armPreference === mode
+                ? "border-slate-900 bg-[#9bbc0f] text-[#1f3d1a]"
+                : "border-slate-900 bg-white text-slate-700"
+            }`}
+          >
+            ARM {mode.toUpperCase()}
+          </button>
+        ))}
       </div>
 
       {/* ── Coin flip overlay ─────────────────────────────────────────── */}

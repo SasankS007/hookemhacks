@@ -2,6 +2,7 @@
 // Uses right wrist (landmark 16) horizontal velocity to classify swings.
 
 export type SwingEvent = "FOREHAND" | "BACKHAND" | "READY";
+export type ArmPreference = "auto" | "right" | "left";
 
 interface WristSample {
   x: number;
@@ -9,13 +10,14 @@ interface WristSample {
 }
 
 // Normalized-coordinates-per-ms threshold to register a swing
-const VX_THRESHOLD = 0.012;
+const VX_THRESHOLD = 0.0095;
 // Minimum swing duration window (ms)
 const SAMPLE_WINDOW_MS = 120;
 // Cooldown after emitting a swing before next can fire
-const COOLDOWN_MS = 650;
+const COOLDOWN_MS = 480;
 // How long the emitted state is visible before resetting to READY
 const EMIT_DURATION_MS = 250;
+const MIN_VISIBILITY = 0.25;
 
 export class SwingDetector {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,10 +25,21 @@ export class SwingDetector {
   private samples: WristSample[] = [];
   private lastSwingTime = 0;
   private emitResetTime = 0;
+  private trackedArm: ArmPreference = "auto";
+  private activeArm: "right" | "left" = "right";
 
   strokeState: SwingEvent = "READY";
   wristDx = 0;   // net displacement over sample window (normalised, camera space)
   wristSpeed = 0; // abs vx
+  wristX = 0.5;
+  wristY = 0.5;
+  wristVisibility = 0;
+
+  setTrackedArm(arm: ArmPreference) {
+    if (this.trackedArm === arm) return;
+    this.trackedArm = arm;
+    this.samples = [];
+  }
 
   async init(): Promise<void> {
     const { FilesetResolver, PoseLandmarker } = await import("@mediapipe/tasks-vision");
@@ -67,9 +80,46 @@ export class SwingDetector {
     const lw = lm[15];
     if (!rw && !lw) return;
 
-    // Pick dominant wrist (higher visibility / confidence)
-    const wrist = (!lw || (rw && rw.visibility >= lw.visibility)) ? rw : lw;
+    const rightVisible = rw && (rw.visibility ?? 0) >= MIN_VISIBILITY;
+    const leftVisible = lw && (lw.visibility ?? 0) >= MIN_VISIBILITY;
+
+    let wrist = null;
+    let armThisFrame: "right" | "left" = this.activeArm;
+    if (this.trackedArm === "right") {
+      wrist = rightVisible ? rw : rw ?? (leftVisible ? lw : null);
+      armThisFrame = "right";
+    } else if (this.trackedArm === "left") {
+      wrist = leftVisible ? lw : lw ?? (rightVisible ? rw : null);
+      armThisFrame = "left";
+    } else {
+      if (rightVisible && leftVisible) {
+        if ((rw!.visibility ?? 0) >= (lw!.visibility ?? 0)) {
+          wrist = rw;
+          armThisFrame = "right";
+        } else {
+          wrist = lw;
+          armThisFrame = "left";
+        }
+      } else if (rightVisible) {
+        wrist = rw;
+        armThisFrame = "right";
+      } else if (leftVisible) {
+        wrist = lw;
+        armThisFrame = "left";
+      } else {
+        wrist = rw ?? lw ?? null;
+      }
+    }
     if (!wrist) return;
+
+    if (armThisFrame !== this.activeArm) {
+      this.samples = [];
+      this.activeArm = armThisFrame;
+    }
+
+    this.wristX = wrist.x;
+    this.wristY = wrist.y;
+    this.wristVisibility = wrist.visibility ?? 0;
 
     this.samples.push({ x: wrist.x, t: timestampMs });
     // Trim old samples
@@ -90,10 +140,9 @@ export class SwingDetector {
     if (inCooldown || this.strokeState !== "READY") return;
 
     if (Math.abs(vx) > VX_THRESHOLD) {
-      // Camera coords: wrist moves right (vx > 0) = player moving arm to THEIR left = BACKHAND
-      // Camera coords: wrist moves left (vx < 0) = player moving arm to THEIR right = FOREHAND
-      // (Assuming unmirrored camera, player facing camera)
-      this.strokeState = vx < 0 ? "FOREHAND" : "BACKHAND";
+      // For left-arm play, forehand/backhand mapping is mirrored horizontally.
+      const forehand = this.activeArm === "left" ? vx > 0 : vx < 0;
+      this.strokeState = forehand ? "FOREHAND" : "BACKHAND";
       this.lastSwingTime = timestampMs;
       this.emitResetTime = timestampMs + EMIT_DURATION_MS;
     }

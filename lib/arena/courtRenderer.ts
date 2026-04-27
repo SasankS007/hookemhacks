@@ -1,5 +1,5 @@
 import {
-  COURT_W, COURT_H, BALL_R, PADDLE_W, PADDLE_H, MARGIN_TOP,
+  COURT_W, COURT_H, BALL_R, PADDLE_W, MARGIN_TOP,
   BOT_LEFT, BOT_RIGHT, TOP_LEFT, TOP_RIGHT, rowXs,
 } from "./browserGameState";
 import type { GameSnapshot } from "./browserGameState";
@@ -10,6 +10,115 @@ function courtPoint(nx: number, ny: number): [number, number] {
   const y = lerp(TOP_LEFT[1], BOT_LEFT[1], ny);
   const [lx, rx] = rowXs(y);
   return [lerp(lx, rx, nx), y];
+}
+
+function drawStickRacket(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  swingRight: boolean,
+  swinging: boolean
+) {
+  const baseAngle = swingRight ? -0.75 : -2.35;
+  const swingOffset = swinging ? (swingRight ? -0.65 : 0.65) : 0;
+  const angle = baseAngle + swingOffset;
+  const hLen = 12;
+  const headOffset = 9;
+  const hx = x + Math.cos(angle) * hLen;
+  const hy = y + Math.sin(angle) * hLen;
+  const rx = hx + Math.cos(angle) * headOffset;
+  const ry = hy + Math.sin(angle) * headOffset;
+
+  ctx.strokeStyle = "#f8fafc";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(hx, hy);
+  ctx.stroke();
+
+  ctx.fillStyle = "#f8fafc";
+  ctx.beginPath();
+  ctx.ellipse(rx, ry, 5, 6.5, angle, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+function drawPlayerFigure(
+  ctx: CanvasRenderingContext2D,
+  cx: number,
+  feetY: number,
+  palette: { shirt: string; short: string; skin: string },
+  swinging: boolean,
+  facing: "up" | "down"
+) {
+  const dir = facing === "up" ? -1 : 1;
+  const bodyTopY = feetY - 22;
+  const bodyH = 16;
+  const bodyW = 11;
+  const shoulderY = bodyTopY + 2;
+  const headY = bodyTopY - 7;
+  const racketHandX = cx + 8;
+  const racketHandY = shoulderY + (swinging ? -2 * dir : 1 * dir);
+
+  // Shoe shadows
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.beginPath();
+  ctx.ellipse(cx - 4, feetY + 1, 2.4, 1.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx + 4, feetY + 1, 2.4, 1.5, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Legs
+  ctx.strokeStyle = "#1f2937";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 3, bodyTopY + bodyH);
+  ctx.lineTo(cx - 3, feetY);
+  ctx.moveTo(cx + 3, bodyTopY + bodyH);
+  ctx.lineTo(cx + 3, feetY);
+  ctx.stroke();
+
+  // Shorts
+  ctx.fillStyle = palette.short;
+  ctx.fillRect(cx - bodyW / 2, bodyTopY + bodyH - 4, bodyW, 5);
+
+  // Torso
+  ctx.fillStyle = palette.shirt;
+  ctx.beginPath();
+  ctx.roundRect(cx - bodyW / 2, bodyTopY, bodyW, bodyH, 4);
+  ctx.fill();
+
+  // Non-racket arm
+  ctx.strokeStyle = palette.skin;
+  ctx.lineWidth = 2.2;
+  ctx.beginPath();
+  ctx.moveTo(cx - 4, shoulderY);
+  ctx.lineTo(cx - 10, shoulderY + 4 * dir);
+  ctx.stroke();
+
+  // Racket arm
+  ctx.beginPath();
+  ctx.moveTo(cx + 4, shoulderY);
+  ctx.lineTo(racketHandX, racketHandY);
+  ctx.stroke();
+
+  // Head
+  ctx.fillStyle = palette.skin;
+  ctx.beginPath();
+  ctx.arc(cx, headY, 5.6, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = "#0f172a";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+
+  // Hair cap
+  ctx.fillStyle = "#111827";
+  ctx.beginPath();
+  ctx.arc(cx, headY - 1, 5.5, Math.PI, Math.PI * 2);
+  ctx.fill();
+
+  drawStickRacket(ctx, racketHandX, racketHandY, true, swinging);
 }
 
 export function renderCourt(ctx: CanvasRenderingContext2D, snap: GameSnapshot) {
@@ -101,20 +210,30 @@ export function renderCourt(ctx: CanvasRenderingContext2D, snap: GameSnapshot) {
     ctx.fillRect(0, COURT_H * 0.60, COURT_W, COURT_H * 0.40);
   }
 
-  // AI paddle
-  ctx.fillStyle = snap.aiSwinging ? "#fb923c" : "#ef4444";
-  ctx.fillRect(snap.aiX, MARGIN_TOP - PADDLE_H / 2, PADDLE_W, PADDLE_H);
-  ctx.strokeStyle = "#1e293b";
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(snap.aiX, MARGIN_TOP - PADDLE_H / 2, PADDLE_W, PADDLE_H);
+  // AI figure (uses paddle X as movement anchor)
+  const aiCenterX = snap.aiX + PADDLE_W / 2;
+  const aiFeetY = MARGIN_TOP + 20;
+  drawPlayerFigure(
+    ctx,
+    aiCenterX,
+    aiFeetY,
+    { shirt: snap.aiSwinging ? "#fb923c" : "#ef4444", short: "#7f1d1d", skin: "#f2c39b" },
+    snap.aiSwinging,
+    "up"
+  );
 
-  // Player paddle (at bottom of court, visually)
+  // Player figure (uses paddle X as movement anchor)
   const playerY = COURT_H - 28;
-  ctx.fillStyle = snap.playerSwinging ? "#22c55e" : "#3b82f6";
-  ctx.fillRect(snap.playerX, playerY - PADDLE_H / 2, PADDLE_W, PADDLE_H);
-  ctx.strokeStyle = "#1e293b";
-  ctx.lineWidth = 1.5;
-  ctx.strokeRect(snap.playerX, playerY - PADDLE_H / 2, PADDLE_W, PADDLE_H);
+  const playerCenterX = snap.playerX + PADDLE_W / 2;
+  const playerFeetY = playerY + 14;
+  drawPlayerFigure(
+    ctx,
+    playerCenterX,
+    playerFeetY,
+    { shirt: snap.playerSwinging ? "#22c55e" : "#3b82f6", short: "#1e3a8a", skin: "#f5cba7" },
+    snap.playerSwinging,
+    "down"
+  );
 
   // Ball shadow
   ctx.save();
