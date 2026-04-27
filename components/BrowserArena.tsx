@@ -187,64 +187,104 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
         camCtx.drawImage(vid, -cw, 0, cw, ch);
         camCtx.restore();
 
-        // Draw full body skeleton overlay
+        // Arm skeleton overlay — matches Python CV style
         const lms = detector?.landmarks;
         if (lms) {
-          // Connections: [from, to] landmark indices
-          const CONNECTIONS: [number, number][] = [
-            [11, 12], // shoulders
-            [11, 13], [13, 15], // left arm
-            [12, 14], [14, 16], // right arm
-            [11, 23], [12, 24], // torso sides
-            [23, 24], // hips
-          ];
-          // Mirror x for display (canvas is flipped)
-          const px = (lm: { x: number; y: number; visibility?: number }) => (1 - lm.x) * cw;
-          const py = (lm: { x: number; y: number; visibility?: number }) => lm.y * ch;
+          const mpx = (lm: { x: number }) => (1 - lm.x) * cw; // mirror x
+          const mpy = (lm: { y: number }) => lm.y * ch;
           const vis = (lm: { visibility?: number }) => (lm.visibility ?? 0) > 0.2;
 
-          // Draw connections
-          camCtx.strokeStyle = "rgba(255,255,255,0.55)";
-          camCtx.lineWidth = 2;
-          for (const [a, b] of CONNECTIONS) {
-            const lA = lms[a], lB = lms[b];
-            if (!lA || !lB || !vis(lA) || !vis(lB)) continue;
-            camCtx.beginPath();
-            camCtx.moveTo(px(lA), py(lA));
-            camCtx.lineTo(px(lB), py(lB));
-            camCtx.stroke();
-          }
+          // Draw shoulder → elbow → wrist chains for both arms
+          const ARMS: [number, number, number][] = [
+            [11, 13, 15], // left arm  (right on mirrored display)
+            [12, 14, 16], // right arm (left on mirrored display)
+          ];
 
-          // Draw joint dots in yellow
-          const JOINTS = [0, 11, 12, 13, 14, 15, 16, 23, 24];
-          for (const idx of JOINTS) {
-            const lm = lms[idx];
-            if (!lm || !vis(lm)) continue;
-            const isWrist = idx === 15 || idx === 16;
-            const isSwinging = detector.strokeState !== "READY" && isWrist;
-            camCtx.fillStyle = isSwinging ? "#22c55e" : "#fde047";
-            camCtx.strokeStyle = "#0f172a";
-            camCtx.lineWidth = isWrist ? 2.5 : 1.5;
-            camCtx.beginPath();
-            camCtx.arc(px(lm), py(lm), isWrist ? 9 : 5, 0, Math.PI * 2);
-            camCtx.fill();
-            camCtx.stroke();
-          }
+          for (const [sh, el, wr] of ARMS) {
+            const shoulder = lms[sh], elbow = lms[el], wrist = lms[wr];
+            if (!shoulder || !elbow || !wrist) continue;
+            if (!vis(shoulder) && !vis(elbow) && !vis(wrist)) continue;
 
-          // Pulse ring on active wrist when swinging
-          if (detector.strokeState !== "READY") {
-            const aw = lms[detector.wristX < 0.5 ? 16 : 15]; // mirror: right wrist is left in camera
-            const tracked = lms[16] ?? lms[15];
-            if (tracked && vis(tracked)) {
-              camCtx.strokeStyle = "#22c55e";
-              camCtx.lineWidth = 2;
-              camCtx.globalAlpha = 0.6;
+            const isActive = (wr === 15 || wr === 16); // both arms shown
+            const isSwinging = detector.strokeState !== "READY";
+
+            // Bone lines — orange-yellow gradient feel
+            camCtx.strokeStyle = isSwinging && isActive ? "rgba(251,146,60,0.9)" : "rgba(255,220,80,0.75)";
+            camCtx.lineWidth = 3;
+            camCtx.lineCap = "round";
+            if (vis(shoulder) && vis(elbow)) {
               camCtx.beginPath();
-              camCtx.arc(px(tracked), py(tracked), 18, 0, Math.PI * 2);
+              camCtx.moveTo(mpx(shoulder), mpy(shoulder));
+              camCtx.lineTo(mpx(elbow), mpy(elbow));
               camCtx.stroke();
-              camCtx.globalAlpha = 1;
             }
-            void aw;
+            if (vis(elbow) && vis(wrist)) {
+              camCtx.beginPath();
+              camCtx.moveTo(mpx(elbow), mpy(elbow));
+              camCtx.lineTo(mpx(wrist), mpy(wrist));
+              camCtx.stroke();
+            }
+            camCtx.lineCap = "butt";
+
+            // Joint dots
+            for (const [lm, r] of [[shoulder, 6], [elbow, 7], [wrist, 9]] as const) {
+              if (!vis(lm)) continue;
+              const isWristDot = lm === wrist;
+              const dotColor = isSwinging && isWristDot ? "#22c55e" : "#fde047";
+              camCtx.fillStyle = dotColor;
+              camCtx.strokeStyle = "#0f172a";
+              camCtx.lineWidth = 2;
+              camCtx.beginPath();
+              camCtx.arc(mpx(lm), mpy(lm), r, 0, Math.PI * 2);
+              camCtx.fill();
+              camCtx.stroke();
+            }
+
+            // Direction arrow at wrist showing swing velocity
+            if (vis(wrist) && Math.abs(detector.wristDx) > 0.02) {
+              const wx = mpx(wrist), wy = mpy(wrist);
+              const arrowLen = Math.min(55, Math.abs(detector.wristDx) * 300);
+              // wristDx in camera space: positive = wrist moved right in camera = LEFT on mirrored display
+              const arrowDx = -Math.sign(detector.wristDx) * arrowLen;
+              const ex = wx + arrowDx, ey = wy;
+              const headLen = 10, headAngle = 0.45;
+              const angle = Math.atan2(ey - wy, ex - wx);
+              camCtx.strokeStyle = isSwinging ? "#22c55e" : "#fde047";
+              camCtx.lineWidth = 2.5;
+              camCtx.lineCap = "round";
+              camCtx.beginPath();
+              camCtx.moveTo(wx, wy);
+              camCtx.lineTo(ex, ey);
+              camCtx.lineTo(ex - headLen * Math.cos(angle - headAngle), ey - headLen * Math.sin(angle - headAngle));
+              camCtx.moveTo(ex, ey);
+              camCtx.lineTo(ex - headLen * Math.cos(angle + headAngle), ey - headLen * Math.sin(angle + headAngle));
+              camCtx.stroke();
+              camCtx.lineCap = "butt";
+            }
+
+            // "SWEET SPOT" label at wrist when hit window active or just fired
+            if (vis(wrist) && isSwinging) {
+              const wx = mpx(wrist), wy = mpy(wrist);
+              camCtx.font = "bold 11px monospace";
+              camCtx.textAlign = "left";
+              camCtx.fillStyle = "#22c55e";
+              camCtx.strokeStyle = "#000";
+              camCtx.lineWidth = 3;
+              camCtx.strokeText("SWEET SPOT", wx + 12, wy + 4);
+              camCtx.fillText("SWEET SPOT", wx + 12, wy + 4);
+            }
+          }
+
+          // Speed readout at top-left of cam
+          if (detector.wristSpeed > 0.003) {
+            const speedLabel = `${detector.strokeState !== "READY" ? detector.strokeState : "READY"}  ·  spd ${Math.round(detector.wristSpeed * 1000)}`;
+            camCtx.font = "bold 11px monospace";
+            camCtx.textAlign = "left";
+            camCtx.fillStyle = "#fde047";
+            camCtx.strokeStyle = "#000";
+            camCtx.lineWidth = 3;
+            camCtx.strokeText(speedLabel, 8, ch - 10);
+            camCtx.fillText(speedLabel, 8, ch - 10);
           }
         }
       }
