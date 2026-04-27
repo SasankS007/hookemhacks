@@ -49,6 +49,7 @@ _MIN_SCORE = 35              # minimum score for a valid stroke
 _BACKSWING_ENTRY_VEL = 0.06  # wrist velocity to start a swing
 _PEAK_VEL_THRESHOLD = 0.04   # velocity peak required for contact
 _BACKSWING_ABORT_FRAMES = 25 # frames before aborting a stalled backswing
+_MIN_WRIST_SPEED = 0.20      # minimum normalised wrist speed (filters light flicks)
 
 
 class Phase(str, Enum):
@@ -272,12 +273,14 @@ class StrokeClassifier:
         self.phase = Phase.CONTACT
         if self._backswing_start_wrist_x is not None:
             self._wrist_dx = sample.wrist[0] - self._backswing_start_wrist_x
+        # Gate: reject light flicks — wrist must have real swing speed
+        if self.wrist_speed < _MIN_WRIST_SPEED:
+            self._reset_swing()
+            return
         self._score_contact(lm, sample, fl)
         self._contact_scored = True
         self._contact_snapshot = self._build_frame_output(Phase.CONTACT)
-        # Emit game state immediately at contact so the game registers the hit
-        # without waiting for follow-through deceleration.
-        self._emit_stroke()
+        # Don't emit yet — wait for follow-through decel to confirm a full swing
         self.phase = Phase.FOLLOW_THROUGH
         self._follow_decel_count = 0
         self._follow_prev_vw = sample.v_wrist
@@ -346,7 +349,12 @@ class StrokeClassifier:
             self._follow_prev_vw = vw
 
             if self._follow_decel_count >= _FOLLOW_DECEL_FRAMES or vw < 0.03:
-                self._reset_swing()
+                if not self._emitted:
+                    # First time condition met: emit so game_state sees the stroke
+                    self._emit_stroke()
+                else:
+                    # Already emitted last frame — now clean up
+                    self._reset_swing()
 
     def _emit_stroke(self) -> None:
         """Emit the stroke once. Net/out is determined by ball physics, not random."""

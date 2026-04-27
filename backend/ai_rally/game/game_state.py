@@ -89,15 +89,12 @@ def _ai_miss_split(difficulty: str) -> tuple[float, float]:
     return (0.32, 0.62)
 
 
-# Extra inward margin so the ball reads “in” before sideline fault (more forgiving).
-_SIDELINE_SLACK = 28.0
-
-
 def _court_x_bounds(by: float) -> tuple[float, float]:
-    """Playable left/right x at a given ball y, using the trapezoid."""
+    “””Left/right boundary at ball y following the exact trapezoid sideline.”””
     cy = max(TOP_LEFT[1], min(BOT_LEFT[1], by))
     lx, rx = row_xs(cy)
-    return lx + BALL_R - _SIDELINE_SLACK, rx - BALL_R + _SIDELINE_SLACK
+    # Ball center must be at least BALL_R inside the line (ball edge at line = out)
+    return lx + BALL_R, rx - BALL_R
 
 
 class GameState:
@@ -245,8 +242,15 @@ class GameState:
         self.bx += self.bdx
         self.by += self.bdy
 
-        # Sideline OOB removed — visual court bounds don't match physics tightly
-        # enough to call fair out calls. Points only scored at baselines.
+        # Sideline OOB — only call out when player's shot travels toward AI.
+        # Skipping this check on AI's incoming ball prevents false outs after
+        # a valid in-bounds hit that continues to drift laterally.
+        if self.bdy < 0 and self.last_hit_by == "player":
+            lx, rx = _court_x_bounds(self.by)
+            if self.bx < lx or self.bx > rx:
+                self.out_flash_frames = OUT_FLASH_DURATION
+                self._score_point("ai", reason="OUT")
+                return
 
         # Human tracks horizontally toward the ball (ball moving toward player)
         if self.bdy > 0:
