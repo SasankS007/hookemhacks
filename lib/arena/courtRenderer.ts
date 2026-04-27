@@ -22,26 +22,28 @@ function drawStickRacket(
   const baseAngle = swingRight ? -0.75 : -2.35;
   const swingOffset = swinging ? (swingRight ? -0.65 : 0.65) : 0;
   const angle = baseAngle + swingOffset;
-  const hLen = 12;
-  const headOffset = 9;
+  const hLen = 18;
+  const headOffset = 13;
   const hx = x + Math.cos(angle) * hLen;
   const hy = y + Math.sin(angle) * hLen;
   const rx = hx + Math.cos(angle) * headOffset;
   const ry = hy + Math.sin(angle) * headOffset;
 
   ctx.strokeStyle = "#f8fafc";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(x, y);
   ctx.lineTo(hx, hy);
   ctx.stroke();
+  ctx.lineCap = "butt";
 
   ctx.fillStyle = "#f8fafc";
   ctx.beginPath();
-  ctx.ellipse(rx, ry, 5, 6.5, angle, 0, Math.PI * 2);
+  ctx.ellipse(rx, ry, 7, 9, angle, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = "#334155";
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 }
 
@@ -54,68 +56,95 @@ function drawPlayerFigure(
   facing: "up" | "down"
 ) {
   const dir = facing === "up" ? -1 : 1;
-  const bodyTopY = feetY - 22;
-  const bodyH = 16;
-  const bodyW = 11;
-  const shoulderY = bodyTopY + 2;
-  const headY = bodyTopY - 7;
-  const racketHandX = cx + 8;
-  const racketHandY = shoulderY + (swinging ? -2 * dir : 1 * dir);
+  // Scale up from original — characters are now 2.5× taller
+  const bodyH = 32;
+  const bodyW = 18;
+  const legH = 22;
+  const bodyTopY = feetY - legH - bodyH;
+  const shoulderY = bodyTopY + 3;
+  const headR = 10;
+  const headY = bodyTopY - headR - 2;
+  const racketHandX = cx + 14;
+  const racketHandY = shoulderY + (swinging ? -5 * dir : 2 * dir);
 
   // Shoe shadows
   ctx.fillStyle = "rgba(0,0,0,0.3)";
   ctx.beginPath();
-  ctx.ellipse(cx - 4, feetY + 1, 2.4, 1.5, 0, 0, Math.PI * 2);
-  ctx.ellipse(cx + 4, feetY + 1, 2.4, 1.5, 0, 0, Math.PI * 2);
+  ctx.ellipse(cx - 5, feetY + 2, 4, 2, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + 5, feetY + 2, 4, 2, 0, 0, Math.PI * 2);
   ctx.fill();
 
   // Legs
   ctx.strokeStyle = "#1f2937";
-  ctx.lineWidth = 2;
+  ctx.lineWidth = 4;
+  ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(cx - 3, bodyTopY + bodyH);
-  ctx.lineTo(cx - 3, feetY);
-  ctx.moveTo(cx + 3, bodyTopY + bodyH);
-  ctx.lineTo(cx + 3, feetY);
+  ctx.moveTo(cx - 5, bodyTopY + bodyH);
+  ctx.lineTo(cx - 5, feetY);
+  ctx.moveTo(cx + 5, bodyTopY + bodyH);
+  ctx.lineTo(cx + 5, feetY);
   ctx.stroke();
+  ctx.lineCap = "butt";
 
   // Shorts
   ctx.fillStyle = palette.short;
-  ctx.fillRect(cx - bodyW / 2, bodyTopY + bodyH - 4, bodyW, 5);
+  ctx.fillRect(cx - bodyW / 2, bodyTopY + bodyH - 7, bodyW, 9);
 
-  // Torso
+  // Torso — manual rounded rect for browser compat
+  const tx = cx - bodyW / 2, ty = bodyTopY, tw = bodyW, th = bodyH, tr = 5;
   ctx.fillStyle = palette.shirt;
   ctx.beginPath();
-  ctx.roundRect(cx - bodyW / 2, bodyTopY, bodyW, bodyH, 4);
+  ctx.moveTo(tx + tr, ty);
+  ctx.lineTo(tx + tw - tr, ty);
+  ctx.arcTo(tx + tw, ty, tx + tw, ty + tr, tr);
+  ctx.lineTo(tx + tw, ty + th - tr);
+  ctx.arcTo(tx + tw, ty + th, tx + tw - tr, ty + th, tr);
+  ctx.lineTo(tx + tr, ty + th);
+  ctx.arcTo(tx, ty + th, tx, ty + th - tr, tr);
+  ctx.lineTo(tx, ty + tr);
+  ctx.arcTo(tx, ty, tx + tr, ty, tr);
+  ctx.closePath();
   ctx.fill();
 
   // Non-racket arm
   ctx.strokeStyle = palette.skin;
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 3.5;
+  ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(cx - 4, shoulderY);
-  ctx.lineTo(cx - 10, shoulderY + 4 * dir);
+  ctx.moveTo(cx - 6, shoulderY);
+  ctx.lineTo(cx - 16, shoulderY + 7 * dir);
   ctx.stroke();
 
   // Racket arm
   ctx.beginPath();
-  ctx.moveTo(cx + 4, shoulderY);
+  ctx.moveTo(cx + 6, shoulderY);
   ctx.lineTo(racketHandX, racketHandY);
   ctx.stroke();
+  ctx.lineCap = "butt";
 
   // Head
   ctx.fillStyle = palette.skin;
   ctx.beginPath();
-  ctx.arc(cx, headY, 5.6, 0, Math.PI * 2);
+  ctx.arc(cx, headY, headR, 0, Math.PI * 2);
   ctx.fill();
   ctx.strokeStyle = "#0f172a";
-  ctx.lineWidth = 1;
+  ctx.lineWidth = 1.5;
   ctx.stroke();
 
   // Hair cap
   ctx.fillStyle = "#111827";
   ctx.beginPath();
-  ctx.arc(cx, headY - 1, 5.5, Math.PI, Math.PI * 2);
+  ctx.arc(cx, headY - 1, headR, Math.PI, Math.PI * 2);
+  ctx.fill();
+
+  // Eyes (small white dots)
+  const eyeOffY = headY - 1;
+  ctx.fillStyle = "#fff";
+  ctx.beginPath();
+  ctx.arc(cx - 3, eyeOffY, 1.8, 0, Math.PI * 2);
+  ctx.arc(cx + 3, eyeOffY, 1.8, 0, Math.PI * 2);
   ctx.fill();
 
   drawStickRacket(ctx, racketHandX, racketHandY, true, swinging);
@@ -210,9 +239,9 @@ export function renderCourt(ctx: CanvasRenderingContext2D, snap: GameSnapshot) {
     ctx.fillRect(0, COURT_H * 0.60, COURT_W, COURT_H * 0.40);
   }
 
-  // AI figure (uses paddle X as movement anchor)
+  // AI figure — anchored at paddle centre, feet just below paddle line
   const aiCenterX = snap.aiX + PADDLE_W / 2;
-  const aiFeetY = MARGIN_TOP + 20;
+  const aiFeetY = MARGIN_TOP + 72; // below the AI paddle, inside the court
   drawPlayerFigure(
     ctx,
     aiCenterX,
@@ -222,10 +251,9 @@ export function renderCourt(ctx: CanvasRenderingContext2D, snap: GameSnapshot) {
     "up"
   );
 
-  // Player figure (uses paddle X as movement anchor)
-  const playerY = COURT_H - 28;
+  // Player figure — anchored at paddle centre, feet at bottom of court
   const playerCenterX = snap.playerX + PADDLE_W / 2;
-  const playerFeetY = playerY + 14;
+  const playerFeetY = COURT_H - 18; // near the bottom baseline
   drawPlayerFigure(
     ctx,
     playerCenterX,
@@ -287,7 +315,7 @@ export function renderCourt(ctx: CanvasRenderingContext2D, snap: GameSnapshot) {
   ctx.font = "8px monospace";
   ctx.textAlign = "left";
   ctx.fillText("CPU", 4, MARGIN_TOP + 14);
-  ctx.fillText("YOU", 4, playerY + 14);
+  ctx.fillText("YOU", 4, COURT_H - 18 + 14);
 
   ctx.restore();
 }

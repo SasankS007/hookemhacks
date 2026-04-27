@@ -187,25 +187,65 @@ export default function BrowserArena({ difficulty, onExit }: Props) {
         camCtx.drawImage(vid, -cw, 0, cw, ch);
         camCtx.restore();
 
-        if (detector?.wristVisibility && detector.wristVisibility > 0.2) {
-          const dotX = (1 - detector.wristX) * cw;
-          const dotY = detector.wristY * ch;
-          camCtx.fillStyle = "rgba(34,197,94,0.95)";
-          camCtx.strokeStyle = "#0f172a";
-          camCtx.lineWidth = 2;
-          camCtx.beginPath();
-          camCtx.arc(dotX, dotY, 7, 0, Math.PI * 2);
-          camCtx.fill();
-          camCtx.stroke();
+        // Draw full body skeleton overlay
+        const lms = detector?.landmarks;
+        if (lms) {
+          // Connections: [from, to] landmark indices
+          const CONNECTIONS: [number, number][] = [
+            [11, 12], // shoulders
+            [11, 13], [13, 15], // left arm
+            [12, 14], [14, 16], // right arm
+            [11, 23], [12, 24], // torso sides
+            [23, 24], // hips
+          ];
+          // Mirror x for display (canvas is flipped)
+          const px = (lm: { x: number; y: number; visibility?: number }) => (1 - lm.x) * cw;
+          const py = (lm: { x: number; y: number; visibility?: number }) => lm.y * ch;
+          const vis = (lm: { visibility?: number }) => (lm.visibility ?? 0) > 0.2;
 
-          camCtx.strokeStyle = "rgba(34,197,94,0.8)";
-          camCtx.lineWidth = 1.5;
-          camCtx.beginPath();
-          camCtx.moveTo(dotX - 11, dotY);
-          camCtx.lineTo(dotX + 11, dotY);
-          camCtx.moveTo(dotX, dotY - 11);
-          camCtx.lineTo(dotX, dotY + 11);
-          camCtx.stroke();
+          // Draw connections
+          camCtx.strokeStyle = "rgba(255,255,255,0.55)";
+          camCtx.lineWidth = 2;
+          for (const [a, b] of CONNECTIONS) {
+            const lA = lms[a], lB = lms[b];
+            if (!lA || !lB || !vis(lA) || !vis(lB)) continue;
+            camCtx.beginPath();
+            camCtx.moveTo(px(lA), py(lA));
+            camCtx.lineTo(px(lB), py(lB));
+            camCtx.stroke();
+          }
+
+          // Draw joint dots in yellow
+          const JOINTS = [0, 11, 12, 13, 14, 15, 16, 23, 24];
+          for (const idx of JOINTS) {
+            const lm = lms[idx];
+            if (!lm || !vis(lm)) continue;
+            const isWrist = idx === 15 || idx === 16;
+            const isSwinging = detector.strokeState !== "READY" && isWrist;
+            camCtx.fillStyle = isSwinging ? "#22c55e" : "#fde047";
+            camCtx.strokeStyle = "#0f172a";
+            camCtx.lineWidth = isWrist ? 2.5 : 1.5;
+            camCtx.beginPath();
+            camCtx.arc(px(lm), py(lm), isWrist ? 9 : 5, 0, Math.PI * 2);
+            camCtx.fill();
+            camCtx.stroke();
+          }
+
+          // Pulse ring on active wrist when swinging
+          if (detector.strokeState !== "READY") {
+            const aw = lms[detector.wristX < 0.5 ? 16 : 15]; // mirror: right wrist is left in camera
+            const tracked = lms[16] ?? lms[15];
+            if (tracked && vis(tracked)) {
+              camCtx.strokeStyle = "#22c55e";
+              camCtx.lineWidth = 2;
+              camCtx.globalAlpha = 0.6;
+              camCtx.beginPath();
+              camCtx.arc(px(tracked), py(tracked), 18, 0, Math.PI * 2);
+              camCtx.stroke();
+              camCtx.globalAlpha = 1;
+            }
+            void aw;
+          }
         }
       }
     };

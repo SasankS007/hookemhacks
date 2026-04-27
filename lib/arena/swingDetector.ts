@@ -34,6 +34,8 @@ export class SwingDetector {
   wristX = 0.5;
   wristY = 0.5;
   wristVisibility = 0;
+  // Full landmark array (33 points) — null when no pose detected
+  landmarks: Array<{ x: number; y: number; z: number; visibility?: number }> | null = null;
 
   setTrackedArm(arm: ArmPreference) {
     if (this.trackedArm === arm) return;
@@ -72,8 +74,9 @@ export class SwingDetector {
       return;
     }
 
-    if (!result?.landmarks?.length) return;
+    if (!result?.landmarks?.length) { this.landmarks = null; return; }
     const lm = result.landmarks[0];
+    this.landmarks = lm as Array<{ x: number; y: number; z: number; visibility?: number }>;
 
     // Right wrist = landmark 16; left = 15. Use whichever has higher visibility.
     const rw = lm[16];
