@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { PageTransition } from "@/components/PageTransition";
+import BrowserArena from "@/components/BrowserArena";
 import {
   Wifi,
   WifiOff,
@@ -60,6 +61,7 @@ const WS_URL = "ws://localhost:8765";
 
 type ConnState = "disconnected" | "connecting" | "connected" | "error";
 type Difficulty = "easy" | "medium" | "hard";
+type ArenaMode = "browser" | "server";
 type MatchPhase =
   | "idle"
   | "coin_choice"
@@ -127,6 +129,7 @@ export default function AIRallyPage() {
   });
   const [launching, setLaunching] = useState(false);
   const [difficulty, setDifficulty] = useState<Difficulty>("easy");
+  const [arenaMode, setArenaMode] = useState<ArenaMode>("browser");
   const prevScoresRef = useRef<{ p: number; a: number } | null>(null);
   const prevRallyRef = useRef<number | null>(null);
   const gameOverAnnouncedRef = useRef(false);
@@ -454,6 +457,16 @@ export default function AIRallyPage() {
     return () => { wsRef.current?.close(); };
   }, []);
 
+  // Browser mode should not keep the websocket session alive in the background.
+  useEffect(() => {
+    if (arenaMode !== "browser") return;
+    wsRef.current?.close();
+    wsRef.current = null;
+    setConn("disconnected");
+    setMatchPhase("idle");
+    setLaunching(false);
+  }, [arenaMode]);
+
   // ── Layout helpers ────────────────────────────────────────────────────
   const panelShell =
     "relative overflow-hidden pixel-border bg-slate-900/5 shadow-[5px_5px_0_0_#0284c7]";
@@ -468,6 +481,127 @@ export default function AIRallyPage() {
 
   const showServeMeter = conn === "connected" && matchPhase === "serve_meter";
 
+  if (arenaMode === "browser") {
+    return (
+      <PageTransition>
+        <div className="relative mx-auto max-w-screen-2xl overflow-hidden px-2 py-4 sm:px-4 lg:px-6">
+          <div className="net-bg fixed inset-0 -z-[1]" aria-hidden />
+          <div className="mb-6">
+            <p className="font-pixel text-[8px] tracking-[0.28em] text-[#6b5c3e]">ARENA</p>
+            <h1 className="mt-2 font-pixel text-[clamp(1.25rem,4vw,2rem)] leading-tight text-slate-800">
+              RALLY ARENA
+            </h1>
+            <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+              <p className="max-w-3xl font-vt323 text-[1.6rem] leading-tight text-[#4a5d3a]">
+                Browser mode runs fully client-side with webcam swing detection and no CV server required.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => { void playUiClick(); setTutorialStep(0); setShowTutorial(true); }}
+                  className="shrink-0 flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-[#fde047] px-3 py-2 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
+                >
+                  ? HOW TO PLAY
+                </button>
+                <button
+                  onClick={() => { void playUiClick(); setArenaMode("server"); }}
+                  className="shrink-0 rounded-xl border-[2px] border-slate-800 bg-white px-3 py-2 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
+                >
+                  USE CV SERVER MODE
+                </button>
+              </div>
+            </div>
+            <div className="mt-6 pixel-border bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[5px_5px_0_0_#ca8a04] sm:px-6 sm:py-5">
+              <p className="font-pixel text-[8px] tracking-wide text-[#4a5d3a]">
+                CPU DIFFICULTY
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2 sm:gap-3">
+                {(["easy", "medium", "hard"] as Difficulty[]).map((lvl) => (
+                  <button
+                    key={lvl}
+                    type="button"
+                    onPointerDown={() => void playUiClick()}
+                    onClick={() => setDifficulty(lvl)}
+                    className={`min-w-[5.5rem] flex-1 pixel-border px-4 py-3 font-pixel text-[9px] capitalize transition-colors sm:min-w-[6.5rem] ${
+                      difficulty === lvl
+                        ? "bg-green-300 text-slate-900 shadow-[3px_3px_0_0_#15803d]"
+                        : "bg-white/90 text-[#4a5d3a] hover:bg-amber-100"
+                    }`}
+                  >
+                    {lvl}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+          <BrowserArena difficulty={difficulty} onExit={() => setArenaMode("server")} />
+
+          {showTutorial && (
+            <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm p-4">
+              <div className="flex flex-col w-full max-w-sm rounded-[2rem] border-[6px] border-slate-900 bg-[#fde047] shadow-[14px_14px_0_#1e293b] overflow-hidden">
+                <div className="flex items-center justify-between px-6 pt-5 pb-3">
+                  <p className="font-pixel text-[8px] text-slate-600 tracking-widest">
+                    HOW TO PLAY · {tutorialStep + 1}/{TUTORIAL_STEPS.length}
+                  </p>
+                  <button
+                    onClick={closeTutorial}
+                    className="font-pixel text-[9px] text-slate-500 hover:text-slate-800"
+                  >
+                    ✕ SKIP
+                  </button>
+                </div>
+
+                <div className="flex flex-col items-center gap-3 px-6 pb-6 text-center min-h-[280px] justify-center">
+                  <span className="text-5xl">{TUTORIAL_STEPS[tutorialStep].icon}</span>
+                  <p className="font-pixel text-[10px] text-slate-800 leading-relaxed">
+                    {TUTORIAL_STEPS[tutorialStep].title}
+                  </p>
+                  <p className="font-vt323 text-[1.25rem] leading-snug text-[#306230] whitespace-pre-line">
+                    {TUTORIAL_STEPS[tutorialStep].body}
+                  </p>
+                </div>
+
+                <div className="flex justify-center gap-2 pb-3">
+                  {TUTORIAL_STEPS.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setTutorialStep(i)}
+                      className={`h-2 rounded-full transition-all ${i === tutorialStep ? "w-6 bg-slate-800" : "w-2 bg-slate-400"}`}
+                    />
+                  ))}
+                </div>
+
+                <div className="flex gap-0 border-t-[4px] border-slate-900">
+                  <button
+                    onClick={() => setTutorialStep((s) => Math.max(0, s - 1))}
+                    disabled={tutorialStep === 0}
+                    className="flex-1 py-3 font-pixel text-[8px] text-slate-700 border-r-[4px] border-slate-900 disabled:opacity-30 hover:bg-amber-100 transition-colors"
+                  >
+                    ← BACK
+                  </button>
+                  {tutorialStep < TUTORIAL_STEPS.length - 1 ? (
+                    <button
+                      onClick={() => setTutorialStep((s) => s + 1)}
+                      className="flex-1 py-3 font-pixel text-[8px] text-slate-800 hover:bg-amber-100 transition-colors"
+                    >
+                      NEXT →
+                    </button>
+                  ) : (
+                    <button
+                      onClick={closeTutorial}
+                      className="flex-1 py-3 font-pixel text-[9px] text-[#306230] bg-[#9bbc0f] hover:bg-green-400 transition-colors"
+                    >
+                      LET&apos;S PLAY! ▶
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </PageTransition>
+    );
+  }
+
   return (
     <PageTransition>
       <div className="relative mx-auto max-w-screen-2xl overflow-hidden px-2 py-4 sm:px-4 lg:px-6">
@@ -481,12 +615,20 @@ export default function AIRallyPage() {
             <p className="font-vt323 text-[1.75rem] leading-tight text-[#4a5d3a]">
               Webcam swing vs CPU — first to 11. Miss a return and concede the point. Rallies tuned for every difficulty.
             </p>
-            <button
-              onClick={() => { setTutorialStep(0); setShowTutorial(true); void playUiClick(); }}
-              className="shrink-0 flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-[#fde047] px-3 py-2 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
-            >
-              ? HOW TO PLAY
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => { setTutorialStep(0); setShowTutorial(true); void playUiClick(); }}
+                className="shrink-0 flex items-center gap-1.5 rounded-xl border-[2px] border-slate-800 bg-[#fde047] px-3 py-2 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
+              >
+                ? HOW TO PLAY
+              </button>
+              <button
+                onClick={() => { void playUiClick(); setArenaMode("browser"); }}
+                className="shrink-0 rounded-xl border-[2px] border-slate-800 bg-white px-3 py-2 font-pixel text-[8px] text-slate-800 shadow-[3px_3px_0_#1e293b] transition-[transform,box-shadow] hover:translate-x-[1px] hover:translate-y-[1px] hover:shadow-[1px_1px_0_#1e293b]"
+              >
+                USE BROWSER MODE
+              </button>
+            </div>
           </div>
 
           <div className="mt-6 pixel-border bg-gradient-to-br from-amber-50 to-lime-50/80 px-4 py-4 shadow-[5px_5px_0_0_#ca8a04] sm:px-6 sm:py-5">
