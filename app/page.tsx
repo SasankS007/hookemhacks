@@ -156,7 +156,7 @@ export default function LandingPage() {
                       START ▶
                     </Link>
                     <Link
-                      href="/stroke-analysis"
+                      href="/ai-rally?tutorial=true"
                       onPointerDown={() => void playUiClick()}
                       className="flex min-h-[3rem] items-center justify-center rounded-xl border-[3px] border-slate-900 bg-white px-3 font-pixel text-[8px] text-[#1e293b] shadow-[4px_4px_0_#1e293b] transition-[transform,box-shadow] active:translate-x-[2px] active:translate-y-[2px] active:shadow-[1px_1px_0_#1e293b] sm:min-h-[3.25rem]"
                     >

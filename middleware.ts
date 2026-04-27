@@ -33,11 +33,6 @@ export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const isAuthPage = pathname.startsWith("/auth");
 
-  // Redirect unauthenticated users away from protected pages
-  if (!user && !isAuthPage && pathname !== "/") {
-    return NextResponse.redirect(new URL("/auth/login", request.url));
-  }
-
   // Redirect logged-in users away from auth pages
   if (user && isAuthPage) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
